@@ -50,5 +50,37 @@ let _ =
    Takes a state and an expression, and returns the value of the expression in 
    the given state.
 *)
-let eval = failwith "Not implemented yet"
-                    
+(*let eval = failwith "Not implemented yet"*)
+let to_bin_v v = match v with
+      0 -> false
+    | _ -> true
+
+let to_int_v v = match v with
+      true -> 1
+    | false -> 0
+
+let rec eval state expr = 
+match expr with
+    | Const i -> i
+    | Var x -> state x
+    | Binop (operation, e1, e2) ->
+        let v1 = eval state e1 in
+        let v2 = eval state e2 in
+        (*eval_operation operation v1 v2
+and eval_operation operation v1 v2 =*)
+match operation with
+    | "+" -> v1 + v2
+    | "-" -> v1 - v2
+    | "*" -> v1 * v2
+    | "/" -> v1 / v2
+    | "%" -> v1 mod v2
+    | "<" -> to_int_v (v1 < v2)
+    | "<=" -> to_int_v (v1 <= v2)
+    | ">" -> to_int_v (v1 > v2)
+    | ">=" -> to_int_v (v1 >= v2)
+    | "==" -> to_int_v (v1 = v2)
+    | "!=" -> to_int_v (v1 <> v2)
+    | "&&" -> to_int_v (to_bin_v v1 && to_bin_v v2)
+    | "!!" -> to_int_v (to_bin_v v1 || to_bin_v v2)
+    |  _ -> failwith (Printf.sprintf "%s not implemented yet" operation)
+;;
