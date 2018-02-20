@@ -57,7 +57,7 @@ let to_bin_v v = match v with
 
 let to_int_v v = match v with
       true -> 1
-    | false -> 0
+    | _ -> 0
 
 let rec eval state expr = 
 match expr with
