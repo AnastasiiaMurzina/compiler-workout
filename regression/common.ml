@@ -4,7 +4,7 @@ open Syntax
 let conj = (&&)
              
 open Embedding
-open List
+
 let state ps = List.fold_right (fun (x, v) (s, p) -> Expr.update x v s, (x =:= !? v) :: p) ps (Expr.empty, [])
 let eval  (s, p) e =
   let orig      = Expr.eval s e in
