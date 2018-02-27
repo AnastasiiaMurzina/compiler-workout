@@ -56,11 +56,10 @@ module Expr =
         | "!=" -> to_int_v (v1 <> v2)
         | "&&" -> to_int_v (to_bin_v v1 && to_bin_v v2)
         | "!!" -> to_int_v (to_bin_v v1 || to_bin_v v2)
-        |  _ -> failwith (Printf.sprintf "%s not implemented yet" operation)
+        |  _ -> failwith "It is not implemented yet" 
     
 
-    let rec eval state expr = 
-    match expr with
+    let rec eval state expr = match expr with
         | Const i -> i
         | Var x -> state x
         | Binop (operation, e1, e2) ->
@@ -85,9 +84,7 @@ module Stmt =
     type config = Expr.state * int list * int list 
 
     (* Statement evaluator
-
           val eval : config -> t -> config
-
        Takes a configuration and a statement, and returns another configuration *)
                                                          
   (* end *)
@@ -104,7 +101,7 @@ let rec eval c pr = match c, pr with
     | (s, z::i, o), Read v -> (Expr.update v z s,i,o)
     | (s,i,o), Write e -> (s,i,o @ [Expr.eval s e])
     | (s,i,o), Assign (v, e) -> (Expr.update v (Expr.eval s e) s,i,o)
-    | c, Seq (e1, e2) -> eval (eval c e1) e2
+    | c', Seq (e1, e2) -> eval (eval c' e1) e2
 
 
 end
