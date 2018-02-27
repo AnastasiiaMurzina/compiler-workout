@@ -1,4 +1,5 @@
 open GT       
+open Syntax
 
 (* The type for the stack machine instructions *)
 @type insn =
@@ -20,39 +21,38 @@ type config = int list * Syntax.Stmt.config
 (* Stack machine interpreter
      val eval : config -> prg -> config
    Takes a configuration and a program, and returns a configuration as a result
- *) 
+ *)
+let step_eval config prg = match config, prg with
+ | (y::x::st, conf), BINOP p -> ((Syntax.Expr.binop p x y)::st, conf)
+ | (st, conf), CONST z -> (z::st, conf)
+ | (st, (state, z::instream, outstream)), READ -> (z::st, (state, instream, outstream))
+ | (z::st, (state, instream,outstream)), WRITE -> (st, (state, instream, outstream @ [z]))
+ | (st, (state, instream,outstream)), LD x -> ((state x)::st, (state, instream,outstream))
+ | (z::st, (state, instream, outstream)), ST x -> (st, (Syntax.Expr.update x z state, instream, outstream))
+ | _ , _ -> failwith "Unexpected"
 
-let extra_eval conf pr = match conf, pr with
-| (y::x::st, c), BINOP operation -> ((Syntax.Expr.binop operation x y)::st, c)
-| (st, c), CONST z -> (z::st, c)
-| (st, (s, z::i, o)), READ -> (z::st,(s,i,o))
-| (z::st, (s,i,o)), WRITE -> (st,(s,i,o @ [z]))
-| (st, (s,i,o)), LD x -> ((s x):: st, (s,i,o))
-| (z::st, (s,i,o)), ST x -> (st, (Syntax.Expr.update x z s,i,o))
-| _, _ -> failwith "Unexpected instructions" 
+let rec eval config = function
+ | [] -> config
+ | i::prg -> eval (step_eval config i) prg
 
-let rec eval config prog = match config, prog with
-   | c, i::p -> eval (extra_eval c i) p 
-   | c, [] -> c 
-   
 (* Top-level evaluation
      val run : int list -> prg -> int list
    Takes an input stream, a program, and returns an output stream this program calculates
 *)
-let run i p = let (_, (_, _, o)) = eval ([], (Syntax.Expr.empty, i, [])) p in o 
-
-let rec ex_comp = function
-    | Syntax.Expr.Const z -> [CONST z]
-    | Syntax.Expr.Var v -> [LD v]
-    | Syntax.Expr.Binop (operation, e1, e2) -> ex_comp e1 @ ex_comp e2 @ [BINOP operation]
+let run i p = let (_, (_, _, o)) = eval ([], (Syntax.Expr.empty, i, [])) p in o
 
 (* Stack machine compiler
      val compile : Syntax.Stmt.t -> prg
    Takes a program in the source language and returns an equivalent program for the
    stack machine
  *)
-let rec compile (tpst: Syntax.Stmt.t) : prg = match tpst with
-   | Stmt.Assign (z, e) -> (ex_comp e) @ [ST z]
-   | Stmt.Read z -> [READ ; ST z]
-   | Stmt.Write e -> (ex_comp e) @ [WRITE]
-   | Stmt.Seq (e1, e2) -> compile e1 @ compile e2
+let rec step_compile = function
+ | Syntax.Expr.Var x -> [LD x]
+ | Syntax.Expr.Const n -> [CONST n]
+ | Syntax.Expr.Binop (op, a, b) -> step_compile a @ step_compile b @ [BINOP op] 
+
+let rec compile  = function
+ | Syntax.Stmt.Assign (x, e) -> step_compile e @ [ST x] 
+ | Syntax.Stmt.Read x -> [READ; ST x]
+ | Syntax.Stmt.Write e -> step_compile e @ [WRITE]
+ | Syntax.Stmt.Seq (s1, s2) -> compile s1 @ compile s2
