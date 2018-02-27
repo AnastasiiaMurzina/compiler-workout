@@ -34,40 +34,46 @@ module Expr =
     *)
     let update x v s = fun y -> if x = y then v else s y
 
+    (* Expression evaluator
+          val eval : state -> t -> int
+ 
+       Takes a state and an expression, and returns the value of the expression in 
+       the given state.
+    *)
     let to_bin_v v = match v with
-          0 -> false
-          | _ -> true
+      0 -> false
+    | _ -> true
 
     let to_int_v v = match v with
-          true -> 1
-        | false -> 0
+      true -> 1
+    | _ -> 0
 
-    let binop operation v1 v2 = match operation with
-        | "+" -> v1 + v2
-        | "-" -> v1 - v2
-        | "*" -> v1 * v2
-        | "/" -> v1 / v2
-        | "%" -> v1 mod v2
-        | "<" -> to_int_v (v1 < v2)
-        | "<=" -> to_int_v (v1 <= v2)
-        | ">" -> to_int_v (v1 > v2)
-        | ">=" -> to_int_v (v1 >= v2)
-        | "==" -> to_int_v (v1 = v2)
-        | "!=" -> to_int_v (v1 <> v2)
-        | "&&" -> to_int_v (to_bin_v v1 && to_bin_v v2)
-        | "!!" -> to_int_v (to_bin_v v1 || to_bin_v v2)
-        |  _ -> failwith "It is not implemented yet" 
+    let binop operation v1 v2 = 
+    match operation with
+    | "+" -> v1 + v2
+    | "-" -> v1 - v2
+    | "*" -> v1 * v2
+    | "/" -> v1 / v2
+    | "%" -> v1 mod v2
+    | "<" -> to_int_v (v1 < v2)
+    | "<=" -> to_int_v (v1 <= v2)
+    | ">" -> to_int_v (v1 > v2)
+    | ">=" -> to_int_v (v1 >= v2)
+    | "==" -> to_int_v (v1 = v2)
+    | "!=" -> to_int_v (v1 <> v2)
+    | "&&" -> to_int_v (to_bin_v v1 && to_bin_v v2)
+    | "!!" -> to_int_v (to_bin_v v1 || to_bin_v v2)
+    | _ -> failwith (Printf.sprintf "%s not implemented yet" operation)  
     
-
-    let rec eval state expr = match expr with
-        | Const i -> i
-        | Var x -> state x
-        | Binop (operation, e1, e2) ->
-            let v1 = eval state e1 in
-            let v2 = eval state e2 in
-            binop operation v1 v2
-    
-end
+    let rec eval state expr = 
+    match expr with
+    | Const i -> i
+    | Var x -> state x
+    | Binop (operation, e1, e2) ->
+        let v1 = eval state e1 in
+        let v2 = eval state e2 in
+        binop operation v1 v2
+  end
                     
 (* Simple statements: syntax and sematics *)
 module Stmt =
@@ -85,25 +91,24 @@ module Stmt =
 
     (* Statement evaluator
           val eval : config -> t -> config
-       Takes a configuration and a statement, and returns another configuration *)
+       Takes a configuration and a statement, and returns another configuration
+    *)
+    let rec eval conf st = match conf, st with
+    | (state, instream, outstream), Assign (x, expr) -> (Expr.update x (Expr.eval state expr) state, instream, outstream)
+    | (state, z::instream, outstream), Read x -> (Expr.update x z state, instream, outstream)
+    | (state, instream, outstream), Write e -> (state, instream, outstream @ [Expr.eval state e])
+    | (state, instream, outstream), Seq (s1, s2) -> eval (eval (state, instream, outstream) s1) s2
                                                          
-  (* end *)
+  end
 
 (* The top-level definitions *)
+
 (* The top-level syntax category is statement *)
-(* type t = Stmt.t     *)
+type t = Stmt.t    
 
 (* Top-level evaluator
      eval : int list -> t -> int list
    Takes a program and its input stream, and returns the output stream
 *)
-let rec eval c pr = match c, pr with
-    | (s, z::i, o), Read v -> (Expr.update v z s,i,o)
-    | (s,i,o), Write e -> (s,i,o @ [Expr.eval s e])
-    | (s,i,o), Assign (v, e) -> (Expr.update v (Expr.eval s e) s,i,o)
-    | c', Seq (e1, e2) -> eval (eval c' e1) e2
-
-
-end
-(* let eval i p =
-  let _, _, o = Stmt.eval (Expr.empty, i, []) p in o *)
+let eval i p =
+let _, _, o = Stmt.eval (Expr.empty, i, []) p in o
