@@ -1,0 +1,7 @@
++*.depend
++*.cmi
++*.cmx
++*.opt
++*.o
++*.log
++*.txt
