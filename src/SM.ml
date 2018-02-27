@@ -1,5 +1,6 @@
 open GT       
 open Syntax
+open List
 (* The type for the stack machine instructions *)
 @type insn =
 (* binary operator                 *) | BINOP of string
@@ -33,18 +34,22 @@ let extra_eval conf pr = match conf, pr with
 | (z::st, (s,i,o)), ST x -> (st, (Syntax.Expr.update x z s,i,o))
 | _ -> failwith "Unexpected instructions" 
 
-let eval c pr = extra_eval c pr in List.fold_left eval
+(* let rec eval c =  List.fold_left eval (extra_eval c) *)
+let rec eval c = function
+    | [] -> c
+    | x::tsk -> eval (extra_eval c x) tsk
 (* Top-level evaluation
 
      val run : int list -> prg -> int list
 
    Takes an input stream, a program, and returns an output stream this program calculates
 *)
+let run i p = let (_, (_, _, o)) = eval ([], (Syntax.Expr.empty, i, [])) p in o
 
-let rec run = function
+let rec ex_comp = function
     | Syntax.Expr.Const z -> [CONST z]
     | Syntax.Expr.Var v -> [LD v]
-    | Syntax.Expr.Binop (operation, e1, e2) -> run e1 @ run e2 @ [BINOP operation]
+    | Syntax.Expr.Binop (operation, e1, e2) -> ex_comp e1 @ ex_comp e2 @ [BINOP operation]
 
 (* Stack machine compiler
 
@@ -54,8 +59,8 @@ let rec run = function
    stack machine
  *)
 let rec compile tpst = match tpst with
-   | Stmt.Assign (z, e) -> (run e) @ [ST z]
+   | Stmt.Assign (z, e) -> (ex_comp e) @ [ST z]
    | Stmt.Read z -> [READ ; ST z]
-   | Stmt.Write e -> (run e) @ [WRITE]
+   | Stmt.Write e -> (ex_comp e) @ [WRITE]
    (* | _ -> failwith "Not yet" *)
    | Stmt.Seq (e1, e2) -> (compile e1) @ (compile e2)
