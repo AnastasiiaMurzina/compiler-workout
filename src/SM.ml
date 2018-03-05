@@ -24,7 +24,18 @@ type config = int list * Stmt.config
 
    Takes a configuration and a program, and returns a configuration as a result
  *)                         
-let eval _ = failwith "Not yet implemented"
+let step_eval config prg = match config, prg with
+ | (y::x::st, conf), BINOP p -> ((Language.Expr.binop p x y)::st, conf)
+ | (st, conf), CONST z -> (z::st, conf)
+ | (st, (state, z::instream, outstream)), READ -> (z::st, (state, instream, outstream))
+ | (z::st, (state, instream,outstream)), WRITE -> (st, (state, instream, outstream @ [z]))
+ | (st, (state, instream,outstream)), LD x -> ((state x)::st, (state, instream,outstream))
+ | (z::st, (state, instream, outstream)), ST x -> (st, (Language.Expr.update x z state, instream, outstream))
+ | _ , _ -> failwith "Unexpected"
+
+let rec eval config = function
+ | [] -> config
+| i::prg -> eval (step_eval config i) prg
 
 (* Top-level evaluation
 
@@ -41,6 +52,15 @@ let run p i = let (_, (_, _, o)) = eval ([], (Expr.empty, i, [])) p in o
    Takes a program in the source language and returns an equivalent program for the
    stack machine
  *)
-let compile _ = failwith "Not yet implemented"
+let rec step_compile = function
+ | Language.Expr.Var x -> [LD x]
+ | Language.Expr.Const n -> [CONST n]
+ | Language.Expr.Binop (op, a, b) -> step_compile a @ step_compile b @ [BINOP op] 
+
+let rec compile  = function
+ | Language.Stmt.Assign (x, e) -> step_compile e @ [ST x] 
+ | Language.Stmt.Read x -> [READ; ST x]
+ | Language.Stmt.Write e -> step_compile e @ [WRITE]
+ | Language.Stmt.Seq (s1, s2) -> compile s1 @ compile s2
 
                          
