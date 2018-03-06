@@ -33,9 +33,11 @@ let step_eval config prg = match config, prg with
  | (z::st, (state, instream, outstream)), ST x -> (st, (Language.Expr.update x z state, instream, outstream))
  | _ , _ -> failwith "Unexpected"
 
-let rec eval config = function
+
+ let rec eval = List.fold_left step_eval
+(* let rec eval config = function
  | [] -> config
-| i::prg -> eval (step_eval config i) prg
+| i::prg -> eval (step_eval config i) prg *)
 
 (* Top-level evaluation
 
@@ -53,14 +55,14 @@ let run p i = let (_, (_, _, o)) = eval ([], (Expr.empty, i, [])) p in o
    stack machine
  *)
 let rec step_compile = function
- | Language.Expr.Var x -> [LD x]
- | Language.Expr.Const n -> [CONST n]
- | Language.Expr.Binop (op, a, b) -> step_compile a @ step_compile b @ [BINOP op] 
+ | Expr.Var x -> [LD x]
+ | Expr.Const n -> [CONST n]
+ | Expr.Binop (op, a, b) -> step_compile a @ step_compile b @ [BINOP op] 
 
 let rec compile  = function
- | Language.Stmt.Assign (x, e) -> step_compile e @ [ST x] 
- | Language.Stmt.Read x -> [READ; ST x]
- | Language.Stmt.Write e -> step_compile e @ [WRITE]
- | Language.Stmt.Seq (s1, s2) -> compile s1 @ compile s2
+ | Stmt.Assign (x, e) -> step_compile e @ [ST x] 
+ | Stmt.Read x -> [READ; ST x]
+ | Stmt.Write e -> step_compile e @ [WRITE]
+ | Stmt.Seq (s1, s2) -> compile s1 @ compile s2
 
                          

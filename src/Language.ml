@@ -84,9 +84,22 @@ module Expr =
          DECIMAL --- a decimal constant [0-9]+ as a string
    
     *)
-
+let ostap_bin ops = List.map (fun op ->  (ostap ($(op)), fun x y -> Binop(op, x, y))) ops
+    
     ostap (
-      parse: empty {failwith "Not implemented yet"}
+      parse:
+         !(Ostap.Util.expr
+            (fun x -> x)
+            [|
+              `Lefta, ostap_bin ["!!"];
+              `Lefta, ostap_bin ["&&"];
+              `Nona, ostap_bin [">"; ">="; "<"; "<="; "=="; "!="];
+              `Lefta, ostap_bin ["+"; "-"];
+              `Lefta, ostap_bin ["*"; "/"; "%"]
+            |]
+         primary
+       );
+      primary: x:IDENT {Var x} | x:DECIMAL {Const x}| -"(" parse -")"
     )
 
   end
@@ -112,15 +125,21 @@ module Stmt =
        Takes a configuration and a statement, and returns another configuration
     *)
     let rec eval conf st = match conf, st with
-    | (state, instream, outstream), Assign (x, expr) -> (Expr.update x (Expr.eval state expr) state, instream, outstream)
-    | (state, z::instream, outstream), Read x -> (Expr.update x z state, instream, outstream)
-    | (state, instream, outstream), Write e -> (state, instream, outstream @ [Expr.eval state e])
-    | (state, instream, outstream), Seq (s1, s2) -> eval (eval (state, instream, outstream) s1) s2
+    | (state, instream, outstream), (Assign (x, expr)) -> (Expr.update x (Expr.eval state expr) state, instream, outstream)
+    | (state, z::instream, outstream), (Read x) -> (Expr.update x z state, instream, outstream)
+    | (state, instream, outstream), (Write e) -> (state, instream, outstream @ [Expr.eval state e])
+    | (state, instream, outstream), (Seq (s1, s2)) -> eval (eval (state, instream, outstream) s1) s2
 
     (* Statement parser *)
     ostap (
-      parse: empty {failwith "Not implemented yet"}
+      parse: seq | stmt;
+      stmt: assign | read | write;
+      assign: variable:IDENT -":=" expr:!(Expr.parse) {Assign (variable, expr)};
+      read: "read" -"(" variable:IDENT -")" {Read variable};
+      write: "write" -"(" expr:!(Expr.parse) -")" {Write expr};
+      seq: left_stmt:stmt -";" right_stmt:parse {Seq (left_stmt, right_stmt)}
     )
+
       
   end
 
