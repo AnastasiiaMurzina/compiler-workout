@@ -25,19 +25,16 @@ type config = int list * Stmt.config
    Takes a configuration and a program, and returns a configuration as a result
  *)                         
 let step_eval config prg = match config, prg with
- | (y::x::st, conf), BINOP p -> ((Language.Expr.binop p x y)::st, conf)
+ | (y::x::st, conf), BINOP p -> ((Expr.binop p x y)::st, conf)
  | (st, conf), CONST z -> (z::st, conf)
  | (st, (state, z::instream, outstream)), READ -> (z::st, (state, instream, outstream))
  | (z::st, (state, instream,outstream)), WRITE -> (st, (state, instream, outstream @ [z]))
  | (st, (state, instream,outstream)), LD x -> ((state x)::st, (state, instream,outstream))
- | (z::st, (state, instream, outstream)), ST x -> (st, (Language.Expr.update x z state, instream, outstream))
+ | (z::st, (state, instream, outstream)), ST x -> (st, (Expr.update x z state, instream, outstream))
  | _ , _ -> failwith "Unexpected"
 
 
  let rec eval = List.fold_left step_eval
-(* let rec eval config = function
- | [] -> config
-| i::prg -> eval (step_eval config i) prg *)
 
 (* Top-level evaluation
 

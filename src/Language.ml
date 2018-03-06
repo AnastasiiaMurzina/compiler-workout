@@ -49,7 +49,7 @@ module Expr =
     | _ -> true
 
     let to_int_v v = match v with
-      true -> 1
+        true -> 1
     | _ -> 0
 
     let binop operation v1 v2 = 
@@ -128,7 +128,7 @@ module Stmt =
     | (state, instream, outstream), (Assign (x, expr)) -> (Expr.update x (Expr.eval state expr) state, instream, outstream)
     | (state, z::instream, outstream), (Read x) -> (Expr.update x z state, instream, outstream)
     | (state, instream, outstream), (Write e) -> (state, instream, outstream @ [Expr.eval state e])
-    | (state, instream, outstream), (Seq (s1, s2)) -> eval (eval (state, instream, outstream) s1) s2
+    | config, (Seq (s1, s2)) -> eval (eval config s1) s2
 
     (* Statement parser *)
     ostap (
