@@ -5,7 +5,7 @@ open GT
 
 (* Opening a library for combinator-based syntax analysis *)
 open Ostap.Combinators
-       
+open Ostap
 (* Simple expressions: syntax and semantics *)
 module Expr =
   struct
@@ -84,25 +84,24 @@ module Expr =
          DECIMAL --- a decimal constant [0-9]+ as a string
    
     *)
-let ostap_bin ops = List.map (fun op ->  (ostap ($(op)), fun x y -> Binop(op, x, y))) ops
-    
-    ostap (
-      parse:
-         !(Ostap.Util.expr
-            (fun x -> x)
-            [|
-              `Lefta, ostap_bin ["!!"];
-              `Lefta, ostap_bin ["&&"];
-              `Nona, ostap_bin [">"; ">="; "<"; "<="; "=="; "!="];
-              `Lefta, ostap_bin ["+"; "-"];
-              `Lefta, ostap_bin ["*"; "/"; "%"]
-            |]
-         primary
-       );
-      primary: x:IDENT {Var x} | x:DECIMAL {Const x}| -"(" parse -")"
-    )
+ let conv_op s = fun x y -> Binop(s, x, y)
+ let ostap_bin ops = List.map (fun s -> (ostap ($(s)), conv_op s)) ops
 
-  end
+  ostap (
+    primary: x:IDENT {Var x} | x:DECIMAL {Const x} | -"(" parse -")";
+    parse: !(Ostap.Util.expr
+               (fun x -> x)
+               [|
+                `Lefta, ostap_bin ["!!"];
+                 `Lefta, ostap_bin ["&&"];
+                 `Nona,  ostap_bin [">="; ">"; "<="; "<"; "=="; "!="];
+                 `Lefta, ostap_bin ["+"; "-"];
+                 `Lefta, ostap_bin ["*"; "/"; "%"]
+               |]
+              primary
+            )
+  )
+end
                     
 (* Simple statements: syntax and sematics *)
 module Stmt =
