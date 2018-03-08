@@ -24,6 +24,7 @@ type config = int list * Stmt.config
 
    Takes a configuration and a program, and returns a configuration as a result
  *)                         
+<<<<<<< HEAD
 let step_eval config prg = match config, prg with
  | (y::x::st, conf), BINOP p -> ((Expr.binop p x y)::st, conf)
  | (st, conf), CONST z -> (z::st, conf)
@@ -35,12 +36,26 @@ let step_eval config prg = match config, prg with
 
 
  let rec eval = List.fold_left step_eval
+=======
+let rec eval ((stack, ((st, i, o) as c)) as conf) = function
+| [] -> conf
+| insn :: prg' ->
+   eval 
+     (match insn with
+      | BINOP op -> let y::x::stack' = stack in (Expr.to_func op x y :: stack', c)
+      | READ     -> let z::i'        = i     in (z::stack, (st, i', o))
+      | WRITE    -> let z::stack'    = stack in (stack', (st, i, o @ [z]))
+      | CONST i  -> (i::stack, c)
+      | LD x     -> (st x :: stack, c)
+      | ST x     -> let z::stack'    = stack in (stack', (Expr.update x z st, i, o))
+     ) prg'
+>>>>>>> a02d2f10f0fb937b9c20ce1bc554e66439d1508e
 
 (* Top-level evaluation
 
      val run : prg -> int list -> int list
 
-   Takes an input stream, a program, and returns an output stream this program calculates
+   Takes a program, an input stream, and returns an output stream this program calculates
 *)
 let run p i = let (_, (_, _, o)) = eval ([], (Expr.empty, i, [])) p in o
 
@@ -50,6 +65,7 @@ let run p i = let (_, (_, _, o)) = eval ([], (Expr.empty, i, [])) p in o
 
    Takes a program in the source language and returns an equivalent program for the
    stack machine
+<<<<<<< HEAD
  *)
 let rec step_compile = function
  | Expr.Var x -> [LD x]
@@ -63,3 +79,17 @@ let rec compile  = function
  | Stmt.Seq (s1, s2) -> compile s1 @ compile s2
 
                          
+=======
+*)
+let rec compile =
+  let rec expr = function
+  | Expr.Var   x          -> [LD x]
+  | Expr.Const n          -> [CONST n]
+  | Expr.Binop (op, x, y) -> expr x @ expr y @ [BINOP op]
+  in
+  function
+  | Stmt.Seq (s1, s2)  -> compile s1 @ compile s2
+  | Stmt.Read x        -> [READ; ST x]
+  | Stmt.Write e       -> expr e @ [WRITE]
+  | Stmt.Assign (x, e) -> expr e @ [ST x]
+>>>>>>> a02d2f10f0fb937b9c20ce1bc554e66439d1508e

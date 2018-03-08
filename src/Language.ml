@@ -43,6 +43,7 @@ module Expr =
  
        Takes a state and an expression, and returns the value of the expression in 
        the given state.
+<<<<<<< HEAD
     *)
     let to_bin_v v = match v with
       0 -> false
@@ -77,13 +78,42 @@ module Expr =
         let v1 = eval state e1 in
         let v2 = eval state e2 in
         binop operation v1 v2
+=======
+     *)                                                       
+    let to_func op =
+      let bti   = function true -> 1 | _ -> 0 in
+      let itb b = b <> 0 in
+      let (|>) f g   = fun x y -> f (g x y) in
+      match op with
+      | "+"  -> (+)
+      | "-"  -> (-)
+      | "*"  -> ( * )
+      | "/"  -> (/)
+      | "%"  -> (mod)
+      | "<"  -> bti |> (< )
+      | "<=" -> bti |> (<=)
+      | ">"  -> bti |> (> )
+      | ">=" -> bti |> (>=)
+      | "==" -> bti |> (= )
+      | "!=" -> bti |> (<>)
+      | "&&" -> fun x y -> bti (itb x && itb y)
+      | "!!" -> fun x y -> bti (itb x || itb y)
+      | _    -> failwith (Printf.sprintf "Unknown binary operator %s" op)    
+    
+    let rec eval st expr =      
+      match expr with
+      | Const n -> n
+      | Var   x -> st x
+      | Binop (op, x, y) -> to_func op (eval st x) (eval st y)
+>>>>>>> a02d2f10f0fb937b9c20ce1bc554e66439d1508e
 
     (* Expression parser. You can use the following terminals:
 
          IDENT   --- a non-empty identifier a-zA-Z[a-zA-Z0-9_]* as a string
          DECIMAL --- a decimal constant [0-9]+ as a string
-   
+                                                                                                                  
     *)
+<<<<<<< HEAD
  let conv_op s = fun x y -> Binop(s, x, y)
  let ostap_bin ops = List.map (fun s -> (ostap ($(s)), conv_op s)) ops
 
@@ -102,6 +132,32 @@ module Expr =
             )
   )
 end
+=======
+    ostap (                                      
+      parse:
+	  !(Ostap.Util.expr 
+             (fun x -> x)
+	     (Array.map (fun (a, s) -> a, 
+                           List.map  (fun s -> ostap(- $(s)), (fun x y -> Binop (s, x, y))) s
+                        ) 
+              [|                
+		`Lefta, ["!!"];
+		`Lefta, ["&&"];
+		`Nona , ["=="; "!="; "<="; "<"; ">="; ">"];
+		`Lefta, ["+" ; "-"];
+		`Lefta, ["*" ; "/"; "%"];
+              |] 
+	     )
+	     primary);
+      
+      primary:
+        n:DECIMAL {Const n}
+      | x:IDENT   {Var x}
+      | -"(" parse -")"
+    )
+    
+  end
+>>>>>>> a02d2f10f0fb937b9c20ce1bc554e66439d1508e
                     
 (* Simple statements: syntax and sematics *)
 module Stmt =
@@ -119,10 +175,11 @@ module Stmt =
 
     (* Statement evaluator
 
-          val eval : config -> t -> config
+         val eval : config -> t -> config
 
        Takes a configuration and a statement, and returns another configuration
     *)
+<<<<<<< HEAD
     let rec eval conf st = match conf, st with
     | (state, instream, outstream), (Assign (x, expr)) -> (Expr.update x (Expr.eval state expr) state, instream, outstream)
     | (state, z::instream, outstream), (Read x) -> (Expr.update x z state, instream, outstream)
@@ -137,6 +194,24 @@ module Stmt =
       read: "read" -"(" variable:IDENT -")" {Read variable};
       write: "write" -"(" expr:!(Expr.parse) -")" {Write expr};
       seq: left_stmt:stmt -";" right_stmt:parse {Seq (left_stmt, right_stmt)}
+=======
+    let rec eval ((st, i, o) as conf) stmt =
+      match stmt with
+      | Read    x       -> (match i with z::i' -> (Expr.update x z st, i', o) | _ -> failwith "Unexpected end of input")
+      | Write   e       -> (st, i, o @ [Expr.eval st e])
+      | Assign (x, e)   -> (Expr.update x (Expr.eval st e) st, i, o)
+      | Seq    (s1, s2) -> eval (eval conf s1) s2
+                                
+    (* Statement parser *)
+    ostap (
+      parse:
+        s:stmt ";" ss:parse {Seq (s, ss)}
+      | stmt;
+      stmt:
+        "read" "(" x:IDENT ")"          {Read x}
+      | "write" "(" e:!(Expr.parse) ")" {Write e}
+      | x:IDENT ":=" e:!(Expr.parse)    {Assign (x, e)}            
+>>>>>>> a02d2f10f0fb937b9c20ce1bc554e66439d1508e
     )
 
       
