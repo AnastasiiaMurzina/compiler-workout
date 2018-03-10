@@ -12,4 +12,4 @@ $(TESTS): %: %.expr
 	cat $@.input | $(RC) -s $< > $@.log && diff $@.log orig/$@.log
 
 clean:
-rm -f test*.log *.s *~ $(TESTS)
+	rm -f test*.log *.s *~ $(TESTS)
