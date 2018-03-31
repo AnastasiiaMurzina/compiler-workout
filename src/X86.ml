@@ -100,6 +100,11 @@ let rec compile env code =
     | LD x -> let e, env = (env#global x)#allocate in env, [Mov (M (env#loc x), eax); Mov (eax, e)]
     | READ -> let e, env = env#allocate in env, [Call "Lread"; Mov (eax, e)]
     | WRITE -> let e, env = env#pop in env, [Push e; Call "Lwrite"; Pop eax]
+    | LABEL l -> (env, [Label l])
+    | JMP l -> (env, [Jmp l])
+    | CJMP (op, l) -> 
+      let e, env = env#pop in env, [Mov (e, eax); Binop ("cmp", L 0, eax); CJmp (op, l)]
+      (* let newenv, op_list = compile env' rest in (newenv, ops @ op_list) *)
     | CONST n -> let e, env = env#allocate in env, [Mov (L n, e)]
     | BINOP op -> let sx, sy, env = env#pop2 in 
                   let e, env = env#allocate in env, match op with

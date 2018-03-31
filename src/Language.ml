@@ -5,6 +5,7 @@ open GT
 
 (* Opening a library for combinator-based syntax analysis *)
 open Ostap.Combinators
+open List
        
 (* Simple expressions: syntax and semantics *)
 module Expr =
@@ -129,26 +130,32 @@ module Stmt =
        Takes a configuration and a statement, and returns another configuration
     *)
     (* let rec eval conf stmt = failwith "Not yet implemented" *)
-    let rec eval (((st, i, o) as conf): config) (stmt:t) : config =
+    let rec eval ((st, i, o) as conf) stmt =
       match stmt with
       | Read    x       -> (match i with z::i' -> (Expr.update x z st, i', o) | _ -> failwith "Unexpected end of input")
       | Write   e       -> (st, i, o @ [Expr.eval st e])
       | Assign (x, e)   -> (Expr.update x (Expr.eval st e) st, i, o)
       | Seq    (s1, s2) -> eval (eval conf s1) s2
       | Skip ->  conf
-      | If (e, s1, s2) -> 
-      (match Expr.eval st e with
-        | 0 -> eval conf s2 
+      | If (e, s1, s2) -> (match Expr.eval st e with
+        | 0 -> eval conf s2
         | _ -> eval conf s1)
-      (*| While (e, s1) -> (match Expr.eval st e with 
-        | 0 -> conf 
-             | _ -> failwith "Not yet implemented" ) Seq(s1, While(e, s1)) *)(* Expr.eval st s1 in While(e, s) 
-        | _ -> eval conf (Seq s1 (eval conf While) ) )
-      | Repeat (s1, e) -> (match Expr.eval st e with
-        | 0 -> conf
-        | _ -> conf)*)
-      (* | For () *)
- 
+      | While (e, s) -> (match Expr.eval st e with
+        | 0 -> eval (eval conf s) stmt
+        | _ ->conf)
+      | Repeat (s, e) as repUn -> (
+                let cs = eval conf s in
+                let (est, ixs, oxs) = cs in
+                    match (Expr.eval est e) with
+                    | 0 -> eval cs repUn
+                    | _ -> cs
+                  )      
+      
+let elif_branch elif els =
+      let last_action = match els with
+        | None -> Skip
+        | Some act -> act
+      in fold_right (fun (cond, action) branch -> If (cond, action, branch)) elif last_action
 
                                
     (* Statement parser *)
@@ -160,10 +167,14 @@ module Stmt =
         %"read" "(" x:IDENT ")"          {Read x}
       | %"write" "(" e:!(Expr.parse) ")" {Write e}
       | x:IDENT ":=" e:!(Expr.parse)    {Assign (x, e)}
-      | %"if" "("e:!(Expr.parse) ")" %"then" "(" s1:stmt ")" %"else" "(" s2:stmt ")" %"fi" {If (e, s1, s2)}
-      (* | %"while" "("e:!(Expr.parse) ")" %"do" "(" s1:stmt ")" %"od" {While (e, s1)} 
-      | %"repeat" "("s1:stmt")" %"until" "("e:!(Expr.parse)")" {Repeat(s1,e)} *)
-      (* | %"for" "("  *)
+      | %"skip" {Skip}
+      | %"if" e:!(Expr.parse) %"then" s1:parse 
+        elifs:(%"elif" !(Expr.parse) %"then" parse)* 
+        els:(%"else" parse)? %"fi"
+        {If (e, s1, elif_branch elifs els)}
+      | %"while" e:!(Expr.parse) %"do" s1:parse %"od" {While (e, s1)} 
+      | %"repeat" s1:parse %"until" e:!(Expr.parse) {Repeat(s1,e)}
+      | %"for" e1:parse "," e:!(Expr.parse) "," s1:parse %"do" s2:parse %"od" {Seq(e1, While(e, Seq(s1,s2)))}
     )
       
   end
