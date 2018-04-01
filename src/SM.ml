@@ -34,17 +34,19 @@ let checkCJump cond value = match cond with
 
 let rec eval env (stack, ((st, i, o) as c) as conf) = function
 | [] -> conf
-| insn :: prg' ->  match insn with
+| insn :: prg' ->  let c' =
+   (match insn with
       | BINOP op -> let y::x::stack' = stack in (Expr.to_func op x y :: stack', c)
       | READ     -> let z::i'        = i     in (z::stack, (st, i', o))
       | WRITE    -> let z::stack'    = stack in (stack', (st, i, o @ [z]))
       | CONST i  -> (i::stack, c)
-      | LD x     -> (st x :: stack, c)
+      | LD x     -> ((st x) :: stack, c)
       | ST x     -> let z::stack'    = stack in (stack', (Expr.update x z st, i, o))
       | LABEL _ -> conf (* eval env conf prg' *)
       | JMP l -> eval env conf (env#labeled l)
       | CJMP (znz, l) -> let x::stack' = stack in let z = checkCJump znz in
-        if z x then eval env conf (env#labeled l) else eval env conf prg'
+        if z x then eval env conf (env#labeled l) else eval env conf prg') in
+  eval env c' prg'
           
 (* Top-level evaluation
 
