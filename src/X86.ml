@@ -122,6 +122,7 @@ let rec compile env code =
       let new_env, ins = comp_eval env sm_ins in
       let next_env, ins_list = compile new_env rest in next_env, ins @ ins_list
     | [] -> env, []
+
 (* let compile env code = failwith "Not yet implemented" *)
 
 (* A set of strings *)           
@@ -142,7 +143,7 @@ class env =
       let x, n =
 	let rec allocate' = function
 	| []                            -> ebx     , 0
-	| (S n)::_                      -> S (n+1) , n+1
+	| (S n)::_                      -> S (n+1) , n+2
 	| (R n)::_ when n < num_of_regs -> R (n+1) , stack_slots
         | (M _)::s                      -> allocate' s
 	| _                             -> S 0     , 1

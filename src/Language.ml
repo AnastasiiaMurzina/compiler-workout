@@ -141,8 +141,8 @@ module Stmt =
         | 0 -> eval conf s2
         | _ -> eval conf s1)
       | While (e, s) -> (match Expr.eval st e with
-        | 0 -> eval (eval conf s) stmt
-        | _ ->conf)
+        | 0 -> conf
+        | _ -> eval (eval conf s) stmt)
       | Repeat (s, e) as repUn -> (
                 let cs = eval conf s in
                 let (est, ixs, oxs) = cs in
