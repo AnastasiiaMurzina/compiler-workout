@@ -174,7 +174,7 @@ let elif_branch elif els =
         {If (e, s1, elif_branch elifs els)}
       | %"while" e:!(Expr.parse) %"do" s1:parse %"od" {While (e, s1)} 
       | %"repeat" s1:parse %"until" e:!(Expr.parse) {Repeat(s1,e)}
-      | %"for" e1:parse "," e:!(Expr.parse) "," s1:parse %"do" s2:parse %"od" {Seq(e1, While(e, Seq(s1,s2)))}
+      | %"for" e1:parse "," e:!(Expr.parse) "," s1:parse %"do" s2:parse %"od" {Seq(e1, While(e, Seq(s2,s1)))}
     )
       
   end
