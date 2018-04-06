@@ -31,7 +31,25 @@ type config = (prg * State.t) list * int list * Stmt.config
    Takes an environment, a configuration and a program, and returns a configuration as a result. The
    environment is used to locate a label to jump to (via method env#labeled <label_name>)
 *)                         
-let eval env ((cstack, stack, ((st, i, o) as c)) as conf) = failwith "Not implemented"
+let checkCJump cond value = match cond with
+| "nz" -> value <> 0
+| "z" -> value = 0 
+
+let rec eval env ((cstack, stack, ((st, i, o) as c)) as conf) = function
+| [] -> conf
+| JMP l :: _ -> eval env conf (env#labeled l)
+| CJMP (znz, l) :: prg' -> let x::stack' = stack in let z = checkCJump znz in
+        if z x then eval env conf (env#labeled l) else eval env conf prg'
+| insn :: prg' ->  (* let c' = *)
+   (match insn with
+      | BINOP op -> let y::x::stack' = stack in eval env (cstack, Expr.to_func op x y :: stack', c) prg'
+      | READ     -> let z::i'        = i     in eval env (cstack, z::stack, (st, i', o)) prg'
+      | WRITE    -> let z::stack'    = stack in eval env (cstack, stack', (st, i, o @ [z])) prg'
+      | CONST i  -> eval env (cstack, i::stack, c) prg'
+      | LD x     -> eval env (cstack, (st x) :: stack, c) prg'
+      | ST x     -> let z::stack' = stack in eval env (cstack, stack', (State.update x z st, i, o)) prg' (*fix update*)
+      | LABEL _ -> eval env conf prg') 
+       (* in eval env c' prg'   *)
 
 (* Top-level evaluation
 
@@ -57,3 +75,36 @@ let run p i =
    stack machine
 *)
 let compile (defs, p) = failwith "Not implemented"
+(* let rec compile stmt = *)
+let labels = object
+val num = 0
+method incr = "label_" ^ string_of_int num, {< num = num + 1 >}
+end in
+let rec expr = function
+  | Expr.Var x -> [LD x]
+  | Expr.Const n -> [CONST n]
+  | Expr.Binop (op, x, y) -> expr x @ expr y @ [BINOP op]
+    in let rec l_compile p = function
+  | Stmt.Seq (s1, s2) -> let p, first = l_compile p s1 in
+    let p, second = l_compile p s2 in
+      p, first @ second
+  | Stmt.Read x -> p, [READ; ST x]
+  | Stmt.Write e -> p, expr e @ [WRITE]
+  | Stmt.Assign (x, e) -> p, expr e @ [ST x]
+  | Stmt.Skip -> p, []
+  | Stmt.If (e, s1, s2) -> let flbl, p = p#incr in
+      let endlbl, p = p#incr in
+      let p, if1 = l_compile p s1 in
+      let p, if2 = l_compile p s2 in
+      let rec instr = match s2 with
+        | Skip -> [LABEL flbl]
+        | _ -> [JMP endlbl; LABEL flbl] @ if2 @ [LABEL endlbl] in
+          p, (expr e) @ [CJMP ("z", flbl)] @ if1 @ instr
+        | Stmt.While (e,s) -> let initlbl, p = p#incr in
+          let endlbl, p = p#incr in
+          let p, body = l_compile p s in
+          p, [LABEL initlbl] @ (expr e) @ [CJMP ("z", endlbl)] @ body @ [JMP initlbl; LABEL endlbl]
+        | Stmt.Repeat (s, e) -> let initlbl, p = p#incr in
+          let p, body = l_compile p s in
+          p, [LABEL initlbl] @ body @ (expr e) @ [CJMP ("z", initlbl)]
+  in let _, code = l_compile labels stmt in code
