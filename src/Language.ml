@@ -21,12 +21,13 @@ module State =
     (* Update: non-destructively "modifies" the state s by binding the variable x 
        to value v and returns the new state w.r.t. a scope
     *)
+
     let update x v ({g; l; scope} as s) = if List.mem x scope then
     {g; l = (fun y -> if x = y then v else l y); scope}
     else {g = (fun y -> if x = y then v else g y); l; scope}
                                 
     (* Evals a variable in a state w.r.t. a scope *)
-    let eval ({g; l; scope} as s) x = if List.mem x scope then l x else g x
+    let eval ({g; l; scope} as s) x = (if List.mem x scope then l else g) x 
 
     (* Creates a new scope, based on a given state *)
     let enter ({g; _; _} as st) xs = {g; l = femp; scope = xs}
@@ -95,8 +96,8 @@ module Expr =
          DECIMAL --- a decimal constant [0-9]+ as a string
                                                                                                                   
     *)
-  ostap (                                      
-      parse:
+  ostap (
+    parse:
     !(Ostap.Util.expr 
              (fun x -> x)
        (Array.map (fun (a, s) -> a, 
@@ -127,15 +128,15 @@ module Stmt =
 
     (* The type for statements *)
     @type t =
-    (* read into the variable           *) | Read   of string
-    (* write the value of an expression *) | Write  of Expr.t
-    (* assignment                       *) | Assign of string * Expr.t
-    (* composition                      *) | Seq    of t * t 
-    (* empty statement                  *) | Skip
-    (* conditional                      *) | If     of Expr.t * t * t
-    (* loop with a pre-condition        *) | While  of Expr.t * t
-    (* loop with a post-condition       *) | Repeat of t * Expr.t
-    (* call a procedure                 *) | Call   of string * Expr.t list with show
+     (* read into the variable           *) | Read   of string
+     (* write the value of an expression *) | Write  of Expr.t
+     (* assignment                       *) | Assign of string * Expr.t
+     (* composition                      *) | Seq    of t * t 
+     (* empty statement                  *) | Skip
+     (* conditional                      *) | If     of Expr.t * t * t
+     (* loop with a pre-condition        *) | While  of Expr.t * t
+     (* loop with a post-condition       *) | Repeat of t * Expr.t
+     (* call a procedure                 *) | Call   of string * Expr.t list with show
                                                                     
     (* The type of configuration: a state, an input stream, an output stream *)
     type config = State.t * int list * int list 
@@ -201,7 +202,7 @@ let elif_branch elif els =
       | %"while" e:!(Expr.parse) %"do" s1:parse %"od" {While (e, s1)} 
       | %"repeat" s1:parse %"until" e:!(Expr.parse) {Repeat(s1,e)}
       | %"for" e1:parse "," e:!(Expr.parse) "," s1:parse %"do" s2:parse %"od" {Seq(e1, While(e, Seq(s2,s1)))}
-      (* | name:IDENT "(" args:(!(Util.list0)[Expr.parse])? ")" {Call (name, args)}  *)
+      | name: IDENT "(" args:!(Util.list0)[Expr.parse] ")" { Call (name, args) }
     )
       
   end
@@ -212,11 +213,14 @@ module Definition =
 
     (* The type for a definition: name, argument list, local variables, body *)
     type t = string * (string list * string list * Stmt.t)
+let compare_emptry = function
+  | Some x -> x
+  | None -> []
 
     ostap (
-      parse: %"fun" name:IDENT "(" args:!(Util.list)[ostap (IDENT)]? ")"
+      parse: %"fun" name:IDENT "(" args:!(Util.list0)[ostap (IDENT)] ")"
         locals: (%"local" !(Util.list)[ostap (IDENT)])? "{"
-        body: !(Stmt.parse) "}" {(name, (args, locals, body))}
+        body: !(Stmt.parse) "}" {(name, (args, compare_emptry locals, body))}
     )
 
   end
@@ -232,7 +236,10 @@ type t = Definition.t list * Stmt.t
 
    Takes a program and its input stream, and returns the output stream
 *)
-let eval (defs, body) i = failwith "Not implemented"
+let eval (defs, body) i = let module M = Map.Make(String) in
+  let defs' = fold_left (fun m (name, def) -> M.add name (name, def) m) M.empty defs in
+  let env = (object method definition name = snd (M.find name defs') end) in
+  let _, _, o = Stmt.eval env (State.empty, i, []) body in o
                                    
 (* Top-level parser *)
-let parse = failwith "Not implemented"
+let parse = ostap (!(Definition.parse)* !(Stmt.parse))
