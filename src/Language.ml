@@ -6,6 +6,7 @@ open GT
 (* Opening a library for combinator-based syntax analysis *)
 open Ostap
 open Combinators
+open List
                          
 (* States *)
 module State =
@@ -74,15 +75,62 @@ module Expr =
        which takes an environment (of the same type), a name of the function, a list of actual parameters and a configuration, 
        an returns a pair: the return value for the call and the resulting configuration
     *)                                                       
-    let rec eval env ((st, i, o, r) as conf) expr = failwith "Not implemented"
+    let to_func op =
+          let bti   = function true -> 1 | _ -> 0 in
+          let itb b = b <> 0 in
+          let (|>) f g   = fun x y -> f (g x y) in
+          match op with
+          | "+"  -> (+)
+          | "-"  -> (-)
+          | "*"  -> ( * )
+          | "/"  -> (/)
+          | "%"  -> (mod)
+          | "<"  -> bti |> (< )
+          | "<=" -> bti |> (<=)
+          | ">"  -> bti |> (> )
+          | ">=" -> bti |> (>=)
+          | "==" -> bti |> (= )
+          | "!=" -> bti |> (<>)
+          | "&&" -> fun x y -> bti (itb x && itb y)
+          | "!!" -> fun x y -> bti (itb x || itb y)
+          | _    -> failwith (Printf.sprintf "Unknown binary operator %s" op)   
+
+    let rec eval env ((st, i, o, r) as conf) expr = match expr with
+      | Const n -> n, conf
+      | Var   x -> State.eval st x, conf
+      | Binop (op, x, y) -> let e1, c1 = eval env conf x in 
+        let e2, c2 = eval env conf y in to_func op e1 e2, c2
+      (* | Call (f, args) -> State.leave  *)
+
+
          
     (* Expression parser. You can use the following terminals:
 
          IDENT   --- a non-empty identifier a-zA-Z[a-zA-Z0-9_]* as a string
          DECIMAL --- a decimal constant [0-9]+ as a string                                                                                                                  
     *)
-    ostap (                                      
-      parse: empty {failwith "Not implemented"}
+    ostap (
+    parse:
+    !(Ostap.Util.expr 
+             (fun x -> x)
+       (Array.map (fun (a, s) -> a, 
+                           List.map  (fun s -> ostap(- $(s)), (fun x y -> Binop (s, x, y))) s
+                        ) 
+              [|                
+    `Lefta, ["!!"];
+    `Lefta, ["&&"];
+    `Nona , ["=="; "!="; "<="; "<"; ">="; ">"];
+    `Lefta, ["+" ; "-"];
+    `Lefta, ["*" ; "/"; "%"];
+              |] 
+       )
+       primary);
+      
+      primary:
+        n:DECIMAL {Const n}
+      | x:IDENT   {Var x}
+      | -"(" parse -")"
+
     )
     
   end
@@ -111,11 +159,56 @@ module Stmt =
        Takes an environment, a configuration and a statement, and returns another configuration. The 
        environment is the same as for expressions
     *)
-    let rec eval env ((st, i, o, r) as conf) k stmt = failwith "Not implemented"
-         
+    let rec eval env ((st, i, o, r) as conf) k stmt = (* failwith "Not implemented" *)
+    match stmt with
+      | Read    x       -> (match i with z::i' -> (State.update x z st, i', o) | _ -> failwith "Unexpected end of input")
+      | Write   e       -> (st, i, o @ [Expr.eval env conf e])
+      (* | Assign (x, e)   -> (State.update x (Expr.eval env conf e) st, i, o) *)
+      (* | Seq    (s1, s2) -> eval env (eval env conf s1) s2 *)
+      (* | Skip ->  conf *)
+      (* | If (e, s1, s2) -> (match Expr.eval st e with
+        | 0 -> eval env conf s2
+        | _ -> eval env conf s1)
+      | While (e, s) -> (match Expr.eval st e with
+        | 0 -> conf
+        | _ -> eval env (eval env conf s) stmt)
+      | Repeat (s, e) as repUn -> (
+                let cs = eval env conf s in
+                let (est, ixs, oxs) = cs in
+                    match (Expr.eval est e) with
+                    | 0 -> eval env cs repUn
+                    | _ -> cs
+                  )
+      | Call (f, args) -> let (params, locals, body) = env#definition f in
+        let evaled_args = List.map (Expr.eval st) args in
+        let entered_st = State.enter st (params @ locals) in
+        let prepared_state = List.fold_left2 (fun statement args' values -> State.update args' values statement) entered_st params evaled_args in
+        let (st', i', o') = eval env (prepared_state, i, o) body in
+        (State.leave st' st, i', o')         *)
+      
+let elif_branch elif els =
+      let last_action = match els with
+        | None -> Skip
+        | Some act -> act
+      in fold_right (fun (cond, action) branch -> If (cond, action, branch)) elif last_action     
     (* Statement parser *)
     ostap (
-      parse: empty {failwith "Not implemented"}
+      parse:
+        s:stmt ";" ss:parse {Seq (s, ss)}
+      | stmt;
+      stmt:
+        %"read" "(" x:IDENT ")"          {Read x}
+      | %"write" "(" e:!(Expr.parse) ")" {Write e}
+      | x:IDENT ":=" e:!(Expr.parse)    {Assign (x, e)}
+      | %"skip" {Skip}
+      | %"if" e:!(Expr.parse) %"then" s1:parse 
+        elifs:(%"elif" !(Expr.parse) %"then" parse)* 
+        els:(%"else" parse)? %"fi"
+        {If (e, s1, elif_branch elifs els)}
+      | %"while" e:!(Expr.parse) %"do" s1:parse %"od" {While (e, s1)} 
+      | %"repeat" s1:parse %"until" e:!(Expr.parse) {Repeat(s1,e)}
+      | %"for" e1:parse "," e:!(Expr.parse) "," s1:parse %"do" s2:parse %"od" {Seq(e1, While(e, Seq(s2,s1)))}
+      | name: IDENT "(" args:!(Util.list0)[Expr.parse] ")" { Call (name, args) }
     )
       
   end
