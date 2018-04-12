@@ -53,7 +53,7 @@ let rec eval env ((cstack, stack, ((st, i, o) as c)) as conf) = function
       | LD x     -> (cstack, State.eval st x :: stack, c)
       | ST x     -> let z::stack' = stack in (cstack, stack', (State.update x z st, i, o))
       | LABEL _ -> conf
-    | BEGIN (p, l) -> let enter_st = State.enter st (p @ l) in
+      | BEGIN (p, l) -> let enter_st = State.enter st (p @ l) in
                            let (st', stack') = List.fold_right (
                                fun p (st, x::stack') -> (State.update p x st, stack')  
                                 ) p (enter_st, stack) in
@@ -120,3 +120,8 @@ let compile (defs, p) =
     let compile' env (name, (args, locals, body)) as def =
     [LABEL name; BEGIN (args, locals)] @ compile_lbl env body @ [END]  in
     [JMP end_label] @ List.concat (List.map (compile' env) defs) @ [LABEL end_label] @ compile_lbl env p
+  (* | Stmt.Return x -> (match x with
+    | None -> [] @ [END]
+    | Some val -> expr val @ [END] 
+  )
+ *)

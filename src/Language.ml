@@ -93,16 +93,17 @@ module Expr =
           | "!=" -> bti |> (<>)
           | "&&" -> fun x y -> bti (itb x && itb y)
           | "!!" -> fun x y -> bti (itb x || itb y)
-          | _    -> failwith (Printf.sprintf "Unknown binary operator %s" op)   
+          | _    -> failwith (Printf.sprintf "Unknown binary operator %s" op)
 
     let rec eval env ((st, i, o, r) as conf) expr = match expr with
-      | Const n -> n, conf
-      | Var   x -> State.eval st x, conf
-      | Binop (op, x, y) -> let e1, c1 = eval env conf x in 
-        let e2, c2 = eval env conf y in to_func op e1 e2, c2
-      (* | Call (f, args) -> State.leave  *)
-
-
+      | Const n -> n, (st, i, o, Some n)
+      | Var   x -> let y = State.eval st x in y, (st, i, o, Some y)
+      | Binop (op, x, y) -> let a, c' = eval env conf x in 
+        let b, (st', i', o', _) as c'' = eval env c' y in
+        let z = to_func op a b in z, (st', i', o', Some z)
+      | Call (x, args) -> let lambda = (fun (values, config) arg -> let value, c' = eval env config arg in (values @ [value], c')) in
+        let l, c'' = List.fold_left lambda ([], conf) args in
+         env#definition env x l c''
          
     (* Expression parser. You can use the following terminals:
 
@@ -128,7 +129,8 @@ module Expr =
       
       primary:
         n:DECIMAL {Const n}
-      | x:IDENT   {Var x}
+      | x:IDENT args: (-"(" !(Util.list0)[parse] -")") {Call (x, args)}
+      | x:IDENT { Var x } 
       | -"(" parse -")"
 
     )
@@ -159,32 +161,38 @@ module Stmt =
        Takes an environment, a configuration and a statement, and returns another configuration. The 
        environment is the same as for expressions
     *)
+let (<||>) s = function
+| Skip -> s
+| s2 -> Seq (s, s2)
+
     let rec eval env ((st, i, o, r) as conf) k stmt = (* failwith "Not implemented" *)
     match stmt with
-      | Read    x       -> (match i with z::i' -> (State.update x z st, i', o) | _ -> failwith "Unexpected end of input")
-      | Write   e       -> (st, i, o @ [Expr.eval env conf e])
-      (* | Assign (x, e)   -> (State.update x (Expr.eval env conf e) st, i, o) *)
-      (* | Seq    (s1, s2) -> eval env (eval env conf s1) s2 *)
-      (* | Skip ->  conf *)
-      (* | If (e, s1, s2) -> (match Expr.eval st e with
-        | 0 -> eval env conf s2
-        | _ -> eval env conf s1)
-      | While (e, s) -> (match Expr.eval st e with
-        | 0 -> conf
-        | _ -> eval env (eval env conf s) stmt)
-      | Repeat (s, e) as repUn -> (
-                let cs = eval env conf s in
-                let (est, ixs, oxs) = cs in
-                    match (Expr.eval est e) with
-                    | 0 -> eval env cs repUn
-                    | _ -> cs
-                  )
-      | Call (f, args) -> let (params, locals, body) = env#definition f in
-        let evaled_args = List.map (Expr.eval st) args in
+      | Skip ->  (match k with 
+        | Skip -> conf
+        | _ -> eval env conf Skip k)
+      | Read x -> (match i with z::i' -> eval env (State.update x z st, i', o, r) Skip k | _ -> failwith "Unexpected end of input")
+      | Write   e       -> let res, (st', i', o', _)  = Expr.eval env conf e in eval env (st', i', o' @ [res], r) Skip k
+      | Assign (x, e)   -> let res, (st', i', o', _)  =  Expr.eval env conf e in eval env (State.update x res st', i', o', r) Skip k
+      | Seq    (s1, s2) -> eval env conf (s2 <||> k) s1
+      | If (e, s1, s2) -> let res, conf'  =  Expr.eval env conf e in 
+       (match res with
+        | 0 -> eval env conf' k s2
+        | _ -> eval env conf' k s1)
+      | While (e, s) -> let res, conf'  =  Expr.eval env conf e in
+       (match res with
+        | 0 -> conf'
+        | _ -> eval env conf' (While(e, s) <||> k) s)
+      | Repeat (s, e) ->  eval env conf (While(e, s) <||> k) s
+      (* | Call (f, args) -> let evaled_args = List.map (Expr.eval st) args in
         let entered_st = State.enter st (params @ locals) in
         let prepared_state = List.fold_left2 (fun statement args' values -> State.update args' values statement) entered_st params evaled_args in
         let (st', i', o') = eval env (prepared_state, i, o) body in
-        (State.leave st' st, i', o')         *)
+        let (params, locals, body) = env#definition f in
+        (State.leave st' st, i', o')  *)
+      | Return result -> (match result with
+        | None -> (st, i, o, None)
+        | Some r -> let res, (st', i', o', _) = Expr.eval env conf r in (st', i', o', Some res) 
+        ) 
       
 let elif_branch elif els =
       let last_action = match els with
@@ -209,6 +217,7 @@ let elif_branch elif els =
       | %"repeat" s1:parse %"until" e:!(Expr.parse) {Repeat(s1,e)}
       | %"for" e1:parse "," e:!(Expr.parse) "," s1:parse %"do" s2:parse %"od" {Seq(e1, While(e, Seq(s2,s1)))}
       | name: IDENT "(" args:!(Util.list0)[Expr.parse] ")" { Call (name, args) }
+      | %"return" e:!(Expr.parse)? {Return e}
     )
       
   end
