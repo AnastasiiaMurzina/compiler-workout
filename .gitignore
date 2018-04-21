@@ -1,3 +1,5 @@
+regression/test*
+regression/.*
 *generated*
 *~
 *.cmi

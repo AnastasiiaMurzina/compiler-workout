@@ -103,7 +103,7 @@ module Expr =
         let z = to_func op a b in z, (st', i', o', Some z)
       | Call (x, args) -> let lambda = (fun (values, config) arg -> let value, c' = eval env config arg in (values @ [value], c')) in
         let l, c'' = List.fold_left lambda ([], conf) args in
-         env#definition env x l c''
+        let (Some num), c = env#definition env x l c'' in num, c;;
          
     (* Expression parser. You can use the following terminals:
 
@@ -154,7 +154,7 @@ module Stmt =
     (* return statement                 *) | Return of Expr.t option
     (* call a procedure                 *) | Call   of string * Expr.t list with show
                                                                     
-    (* Statement evaluator
+    (* Statement evaluatornastasiiaMurzina?tab=repositories
 
          val eval : env -> config -> t -> config
 
@@ -178,27 +178,27 @@ let (<||>) s = function
        (match res with
         | 0 -> eval env conf' k s2
         | _ -> eval env conf' k s1)
-      | While (e, s) -> let res, conf'  =  Expr.eval env conf e in
+      | While (e, s) ->
+       let res, conf'  =  Expr.eval env conf e in
+        (* Printf.printf "%d\n" res; *)
        (match res with
-        | 0 -> conf'
+        | 0 -> eval env conf' Skip k  
         | _ -> eval env conf' (While(e, s) <||> k) s)
       | Repeat (s, e) ->  eval env conf (While(e, s) <||> k) s
-      (* | Call (f, args) -> let evaled_args = List.map (Expr.eval st) args in
-        let entered_st = State.enter st (params @ locals) in
-        let prepared_state = List.fold_left2 (fun statement args' values -> State.update args' values statement) entered_st params evaled_args in
-        let (st', i', o') = eval env (prepared_state, i, o) body in
-        let (params, locals, body) = env#definition f in
-        (State.leave st' st, i', o')  *)
+      | Call (f, args) -> let process_with_conf (conf, list) e = (let v, conf = Expr.eval env conf e in conf, list @ [v]) in
+        let conf, updated_params = List.fold_left process_with_conf (conf, []) args in
+        let _, conf' =  env#definition env f updated_params conf in 
+        eval env conf' Skip k
       | Return result -> (match result with
         | None -> (st, i, o, None)
         | Some r -> let res, (st', i', o', _) = Expr.eval env conf r in (st', i', o', Some res) 
-        ) 
+        );;
       
 let elif_branch elif els =
       let last_action = match els with
         | None -> Skip
         | Some act -> act
-      in fold_right (fun (cond, action) branch -> If (cond, action, branch)) elif last_action     
+      in List.fold_right (fun (cond, action) branch -> If (cond, action, branch)) elif last_action;;  
     (* Statement parser *)
     ostap (
       parse:
@@ -251,6 +251,7 @@ type t = Definition.t list * Stmt.t
 
    Takes a program and its input stream, and returns the output stream
 *)
+
 let eval (defs, body) i =
   let module M = Map.Make (String) in
   let m          = List.fold_left (fun m ((name, _) as def) -> M.add name def m) M.empty defs in  
@@ -261,13 +262,9 @@ let eval (defs, body) i =
            let xs, locs, s      = snd @@ M.find f m in
            let st'              = List.fold_left (fun st (x, a) -> State.update x a st) (State.enter st (xs @ locs)) (List.combine xs args) in
            let st'', i', o', r' = Stmt.eval env (st', i, o, r) Stmt.Skip s in
-           (State.leave st'' st, i', o', r')
+           r', (State.leave st'' st, i', o', r')
        end)
-      (State.empty, i, [], None)
-      Stmt.Skip
-      body
-  in
-  o
+      (State.empty, i, [], None) Stmt.Skip body in o;;
 
 (* Top-level parser *)
 let parse = ostap (!(Definition.parse)* !(Stmt.parse))

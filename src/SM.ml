@@ -41,7 +41,7 @@ let rec eval env ((cstack, stack, ((st, i, o) as c)) as conf) = function
   | JMP l :: _ -> eval env conf (env#labeled l)
   | CJMP (znz, l) :: prg' -> let x::stack' = stack in let z = checkCJump znz in
         if z x then eval env conf (env#labeled l) else eval env conf prg'
-  | CALL f :: prg' -> eval env ((prg', st)::cstack, stack, c) (env#labeled f)
+  | (CALL f) :: prg' -> eval env ((prg', st)::cstack, stack, c) (env#labeled ("l" ^ f))
   | END _::_ -> let (p, st')::cstack' = cstack in 
                              eval env (cstack', stack, (State.leave st st', i, o)) p
   | insn :: prg' ->  let c' =
@@ -55,7 +55,7 @@ let rec eval env ((cstack, stack, ((st, i, o) as c)) as conf) = function
       | LABEL _ -> conf
       | BEGIN (p, l) -> let enter_st = State.enter st (p @ l) in
                            let (st', stack') = List.fold_right (
-                               fun p (st, x::stack') -> (State.update p x st, stack')  
+                               fun p (st'', x::stack') -> (State.update p x st'', stack')  
                                 ) p (enter_st, stack) in
                            (cstack, stack, (st', i, o))) 
        in eval env c' prg'
@@ -83,7 +83,6 @@ let run p i =
    Takes a program in the source language and returns an equivalent program for the
    stack machine
 *)
-(* let compile (defs, p) = failwith "Not implemented" *)
 class env =
  object (self)
    val mutable label = 0
@@ -93,12 +92,13 @@ class env =
 
 let compile (defs, p) = 
   let env = new env in
-    let end_label = env#next_label in
+  let end_label = env#next_label in
   let rec compile_lbl env p =
   let rec expr = function
   | Expr.Var   x          -> [LD x]
   | Expr.Const n          -> [CONST n]
   | Expr.Binop (op, x, y) -> expr x @ expr y @ [BINOP op]
+  | Expr.Call (f, p) -> List.concat (List.rev_map expr p) @ [CALL f]
   in (match p with
   | Stmt.Seq (s1, s2)   -> compile_lbl env s1 @ compile_lbl env s2
   | Stmt.Read x         -> [READ; ST x]
@@ -116,12 +116,12 @@ let compile (defs, p) =
                 compile_lbl env s @ [JMP flbl; LABEL endlbl]
   | Stmt.Repeat (s, e)  -> let flbl = env#next_label in
                 [LABEL flbl] @ compile_lbl env s @ expr e @ [CJMP ("z", flbl)]
-  | Stmt.Call (f, p)    -> List.concat (List.map expr p) @ [CALL f]) in
+  | Stmt.Return None -> [END]
+  | Stmt.Return Some x -> (expr x) @ [END] 
+  | Stmt.Call (f, p) -> List.concat (List.rev_map expr p) @ [CALL f]
+  ) in
     let compile' env (name, (args, locals, body)) as def =
-    [LABEL name; BEGIN (args, locals)] @ compile_lbl env body @ [END]  in
+    [LABEL ("l" ^ name); BEGIN (args, locals)] @ compile_lbl env body @ [END]  in
     [JMP end_label] @ List.concat (List.map (compile' env) defs) @ [LABEL end_label] @ compile_lbl env p
-  (* | Stmt.Return x -> (match x with
-    | None -> [] @ [END]
-    | Some val -> expr val @ [END] 
-  )
- *)
+  
+
