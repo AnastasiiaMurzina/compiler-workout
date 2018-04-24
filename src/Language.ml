@@ -165,34 +165,33 @@ let (<||>) s = function
 | Skip -> s
 | s2 -> Seq (s, s2)
 
-    let rec eval env ((st, i, o, r) as conf) k stmt = (* failwith "Not implemented" *)
-    match stmt with
-      | Skip ->  (match k with 
-        | Skip -> conf
-        | _ -> eval env conf Skip k)
-      | Read x -> (match i with z::i' -> eval env (State.update x z st, i', o, r) Skip k | _ -> failwith "Unexpected end of input")
-      | Write   e       -> let res, (st', i', o', _)  = Expr.eval env conf e in eval env (st', i', o' @ [res], r) Skip k
-      | Assign (x, e)   -> let res, (st', i', o', _)  =  Expr.eval env conf e in eval env (State.update x res st', i', o', r) Skip k
-      | Seq    (s1, s2) -> eval env conf (s2 <||> k) s1
-      | If (e, s1, s2) -> let res, conf'  =  Expr.eval env conf e in 
-       (match res with
-        | 0 -> eval env conf' k s2
-        | _ -> eval env conf' k s1)
-      | While (e, s) ->
-       let res, conf'  =  Expr.eval env conf e in
-        (* Printf.printf "%d\n" res; *)
-       (match res with
-        | 0 -> eval env conf' Skip k  
-        | _ -> eval env conf' (While(e, s) <||> k) s)
-      | Repeat (s, e) ->  eval env conf (While(e, s) <||> k) s
-      | Call (f, args) -> let process_with_conf (conf, list) e = (let v, conf = Expr.eval env conf e in conf, list @ [v]) in
-        let conf, updated_params = List.fold_left process_with_conf (conf, []) args in
-        let _, conf' =  env#definition env f updated_params conf in 
-        eval env conf' Skip k
-      | Return result -> (match result with
-        | None -> (st, i, o, None)
-        | Some r -> let res, (st', i', o', _) = Expr.eval env conf r in (st', i', o', Some res) 
-        );;
+let rec eval env ((st, i, o, r) as conf) k stmt =
+  match stmt with
+  | Skip ->  (match k with 
+    | Skip -> conf
+    | _ -> eval env conf Skip k)
+  | Read x -> (match i with z::i' -> eval env (State.update x z st, i', o, r) Skip k | _ -> failwith "Unexpected end of input")
+  | Write   e       -> let res, (st', i', o', _)  = Expr.eval env conf e in eval env (st', i', o' @ [res], r) Skip k
+  | Assign (x, e)   -> let res, (st', i', o', _)  =  Expr.eval env conf e in eval env (State.update x res st', i', o', r) Skip k
+  | Seq    (s1, s2) -> eval env conf (s2 <||> k) s1
+  | If (e, s1, s2) -> let res, conf'  =  Expr.eval env conf e in 
+   (match res with
+    | 0 -> eval env conf' k s2
+    | _ -> eval env conf' k s1)
+   | While (e, s) ->
+   let res, conf'  =  Expr.eval env conf e in
+    (* Printf.printf "%d\n" res; *)
+   (match res with
+    | 0 -> eval env conf' Skip k  
+    | _ -> eval env conf' (While(e, s) <||> k) s)
+   | Repeat (s, e) ->  eval env conf  (While (Expr.Binop ("==", e, Expr.Const 0), s) <||> k) s
+   | Call (f, args) -> let process_with_conf (conf, list) e = (let v, conf = Expr.eval env conf e in conf, list @ [v]) in
+      let conf, updated_params = List.fold_left process_with_conf (conf, []) args in
+    let _, conf' =  env#definition env f updated_params conf in 
+    eval env conf' Skip k
+    | Return result -> (match result with
+      | None -> (st, i, o, None)
+      | Some r -> let res, (st', i', o', _) = Expr.eval env conf r in (st', i', o', Some res) )
       
 let elif_branch elif els =
       let last_action = match els with
