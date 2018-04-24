@@ -39,9 +39,9 @@ let checkCJump cond value = match cond with
 let rec eval env ((cstack, stack, ((st, i, o) as c)) as conf) = function
   | [] -> conf
   | JMP l :: _ -> eval env conf (env#labeled l)
-  | CJMP (znz, l) :: prg' -> let x::stack' = stack in let z = checkCJump znz in
-        if z x then eval env conf (env#labeled l) else eval env conf prg'
-  | (CALL f) :: prg' -> eval env ((prg', st)::cstack, stack, c) (env#labeled ("l" ^ f))
+  | CJMP (znz, l) :: prg' -> let x::stack' = stack in
+   if checkCJump znz x then eval env (cstack, stack', c) (env#labeled l) else eval env (cstack, stack', c) prg'
+  | (CALL f) :: prg' -> eval env ((prg', st)::cstack, stack, c) (env#labeled  f)
   | END _::_ -> let (p, st')::cstack' = cstack in 
                              eval env (cstack', stack, (State.leave st st', i, o)) p
   | insn :: prg' ->  let c' =
@@ -57,7 +57,7 @@ let rec eval env ((cstack, stack, ((st, i, o) as c)) as conf) = function
                            let (st', stack') = List.fold_right (
                                fun p (st'', x::stack') -> (State.update p x st'', stack')  
                                 ) p (enter_st, stack) in
-                           (cstack, stack, (st', i, o))) 
+                           (cstack, stack', (st', i, o))) 
        in eval env c' prg'
 (* Top-level evaluation
 
@@ -98,7 +98,7 @@ let compile (defs, p) =
   | Expr.Var   x          -> [LD x]
   | Expr.Const n          -> [CONST n]
   | Expr.Binop (op, x, y) -> expr x @ expr y @ [BINOP op]
-  | Expr.Call (f, p) -> List.concat (List.rev_map expr p) @ [CALL f]
+  | Expr.Call (f, p) -> List.concat (List.map expr p) @ [CALL f]
   in (match p with
   | Stmt.Seq (s1, s2)   -> compile_lbl env s1 @ compile_lbl env s2
   | Stmt.Read x         -> [READ; ST x]
@@ -118,10 +118,10 @@ let compile (defs, p) =
                 [LABEL flbl] @ compile_lbl env s @ expr e @ [CJMP ("z", flbl)]
   | Stmt.Return None -> [END]
   | Stmt.Return Some x -> (expr x) @ [END] 
-  | Stmt.Call (f, p) -> List.concat (List.rev_map expr p) @ [CALL f]
+  | Stmt.Call (f, p) -> List.concat (List.map expr p) @ [CALL f]
   ) in
     let compile' env (name, (args, locals, body)) as def =
-    [LABEL ("l" ^ name); BEGIN (args, locals)] @ compile_lbl env body @ [END]  in
+    [LABEL name; BEGIN (args, locals)] @ compile_lbl env body @ [END]  in
     [JMP end_label] @ List.concat (List.map (compile' env) defs) @ [LABEL end_label] @ compile_lbl env p
   
 
