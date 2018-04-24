@@ -74,7 +74,35 @@ module Expr =
        which takes an environment (of the same type), a name of the function, a list of actual parameters and a configuration, 
        an returns resulting configuration
     *)                                                       
-    let rec eval env ((st, i, o, r) as conf) expr = failwith "Not implemented"
+    let to_func op =
+          let bti   = function true -> 1 | _ -> 0 in
+          let itb b = b <> 0 in
+          let (|>) f g   = fun x y -> f (g x y) in
+          match op with
+          | "+"  -> (+)
+          | "-"  -> (-)
+          | "*"  -> ( * )
+          | "/"  -> (/)
+          | "%"  -> (mod)
+          | "<"  -> bti |> (< )
+          | "<=" -> bti |> (<=)
+          | ">"  -> bti |> (> )
+          | ">=" -> bti |> (>=)
+          | "==" -> bti |> (= )
+          | "!=" -> bti |> (<>)
+          | "&&" -> fun x y -> bti (itb x && itb y)
+          | "!!" -> fun x y -> bti (itb x || itb y)
+          | _    -> failwith (Printf.sprintf "Unknown binary operator %s" op)
+
+    let rec eval env ((st, i, o, r) as conf) expr = match expr with
+      | Const n -> n, (st, i, o, Some n)
+      | Var   x -> let y = State.eval st x in y, (st, i, o, Some y)
+      | Binop (op, x, y) -> let a, c' = eval env conf x in 
+        let b, (st', i', o', _) as c'' = eval env c' y in
+        let z = to_func op a b in z, (st', i', o', Some z)
+      | Call (x, args) -> let lambda = (fun (values, config) arg -> let value, c' = eval env config arg in (values @ [value], c')) in
+        let l, c'' = List.fold_left lambda ([], conf) args in
+        let (Some num), c = env#definition env x l c'' in num, c;;
          
     (* Expression parser. You can use the following terminals:
 
@@ -82,7 +110,28 @@ module Expr =
          DECIMAL --- a decimal constant [0-9]+ as a string                                                                                                                  
     *)
     ostap (                                      
-      parse: empty {failwith "Not implemented"}
+      parse:
+    !(Ostap.Util.expr 
+             (fun x -> x)
+       (Array.map (fun (a, s) -> a, 
+                           List.map  (fun s -> ostap(- $(s)), (fun x y -> Binop (s, x, y))) s
+                        ) 
+              [|                
+    `Lefta, ["!!"];
+    `Lefta, ["&&"];
+    `Nona , ["=="; "!="; "<="; "<"; ">="; ">"];
+    `Lefta, ["+" ; "-"];
+    `Lefta, ["*" ; "/"; "%"];
+              |] 
+       )
+       primary);
+      
+      primary:
+        n:DECIMAL {Const n}
+      | x:IDENT args: (-"(" !(Util.list0)[parse] -")") {Call (x, args)}
+      | x:IDENT { Var x } 
+      | -"(" parse -")"
+
     )
     
   end
@@ -111,11 +160,62 @@ module Stmt =
        Takes an environment, a configuration and a statement, and returns another configuration. The 
        environment is the same as for expressions
     *)
-    let rec eval env ((st, i, o, r) as conf) k stmt = failwith "Not implemnted"
+    let (<||>) s = function
+| Skip -> s
+| s2 -> Seq (s, s2)
+
+let rec eval env ((st, i, o, r) as conf) k stmt =
+  match stmt with
+  | Skip ->  (match k with 
+    | Skip -> conf
+    | _ -> eval env conf Skip k)
+  | Read x -> (match i with z::i' -> eval env (State.update x z st, i', o, r) Skip k | _ -> failwith "Unexpected end of input")
+  | Write   e       -> let res, (st', i', o', _)  = Expr.eval env conf e in eval env (st', i', o' @ [res], r) Skip k
+  | Assign (x, e)   -> let res, (st', i', o', _)  =  Expr.eval env conf e in eval env (State.update x res st', i', o', r) Skip k
+  | Seq    (s1, s2) -> eval env conf (s2 <||> k) s1
+  | If (e, s1, s2) -> let res, conf'  =  Expr.eval env conf e in 
+   (match res with
+    | 0 -> eval env conf' k s2
+    | _ -> eval env conf' k s1)
+   | While (e, s) ->
+   let res, conf'  =  Expr.eval env conf e in
+   (match res with
+    | 0 -> eval env conf' Skip k  
+    | _ -> eval env conf' (While(e, s) <||> k) s)
+   | Repeat (s, e) ->  eval env conf  (While (Expr.Binop ("==", e, Expr.Const 0), s) <||> k) s
+   | Call (f, args) -> let process_with_conf (conf, list) e = (let v, conf = Expr.eval env conf e in conf, list @ [v]) in
+      let conf, updated_params = List.fold_left process_with_conf (conf, []) args in
+    let _, conf' =  env#definition env f updated_params conf in 
+    eval env conf' Skip k
+    | Return result -> (match result with
+      | None -> (st, i, o, None)
+      | Some r -> let res, (st', i', o', _) = Expr.eval env conf r in (st', i', o', Some res) )
+      
+let elif_branch elif els =
+      let last_action = match els with
+        | None -> Skip
+        | Some act -> act
+      in List.fold_right (fun (cond, action) branch -> If (cond, action, branch)) elif last_action;;  
          
     (* Statement parser *)
     ostap (
-      parse: empty {failwith "Not implemented"}
+       parse:
+        s:stmt ";" ss:parse {Seq (s, ss)}
+      | stmt;
+      stmt:
+        %"read" "(" x:IDENT ")"          {Read x}
+      | %"write" "(" e:!(Expr.parse) ")" {Write e}
+      | x:IDENT ":=" e:!(Expr.parse)    {Assign (x, e)}
+      | %"skip" {Skip}
+      | %"if" e:!(Expr.parse) %"then" s1:parse 
+        elifs:(%"elif" !(Expr.parse) %"then" parse)* 
+        els:(%"else" parse)? %"fi"
+        {If (e, s1, elif_branch elifs els)}
+      | %"while" e:!(Expr.parse) %"do" s1:parse %"od" {While (e, s1)} 
+      | %"repeat" s1:parse %"until" e:!(Expr.parse) {Repeat(s1,e)}
+      | %"for" e1:parse "," e:!(Expr.parse) "," s1:parse %"do" s2:parse %"od" {Seq(e1, While(e, Seq(s2,s1)))}
+      | name: IDENT "(" args:!(Util.list0)[Expr.parse] ")" { Call (name, args) }
+      | %"return" e:!(Expr.parse)? {Return e}
     )
       
   end
@@ -128,7 +228,12 @@ module Definition =
     type t = string * (string list * string list * Stmt.t)
 
     ostap (     
-      parse: empty {failwith "Not implemented"}
+      arg  : IDENT;
+      parse: %"fun" name:IDENT "(" args:!(Util.list0 arg) ")"
+         locs:(%"local" !(Util.list arg))?
+        "{" body:!(Stmt.parse) "}" {
+        (name, (args, (match locs with None -> [] | Some l -> l), body))
+      }
     )
 
   end

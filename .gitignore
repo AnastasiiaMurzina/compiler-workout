@@ -1,3 +1,6 @@
+regression/*.swp
+regression/deep-expressions/*
+regression/expressions/generated*
 *~
 *.cmi
 *.cmx
