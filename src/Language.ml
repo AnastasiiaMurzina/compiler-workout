@@ -166,13 +166,14 @@ module Stmt =
 
 let rec eval env ((st, i, o, r) as conf) k stmt =
   match stmt with
-  | Skip ->  (match k with 
+    | Skip ->  (match k with 
     | Skip -> conf
     | _ -> eval env conf Skip k)
   | Read x -> (match i with z::i' -> eval env (State.update x z st, i', o, r) Skip k | _ -> failwith "Unexpected end of input")
-  | Write   e       -> let res, (st', i', o', _)  = Expr.eval env conf e in eval env (st', i', o' @ [res], r) Skip k
-  | Assign (x, e)   -> let res, (st', i', o', _)  =  Expr.eval env conf e in eval env (State.update x res st', i', o', r) Skip k
   | Seq    (s1, s2) -> eval env conf (s2 <||> k) s1
+
+  | _ -> failwith "notimplemented" (* | Write   e       -> let res, (st', i', o', _)  = Expr.eval env conf e in eval env (st', i', o' @ [res], r) Skip k
+  | Assign (x, e)   -> let res, (st', i', o', _)  =  Expr.eval env conf e in eval env (State.update x res st', i', o', r) Skip k
   | If (e, s1, s2) -> let res, conf'  =  Expr.eval env conf e in 
    (match res with
     | 0 -> eval env conf' k s2
@@ -189,7 +190,7 @@ let rec eval env ((st, i, o, r) as conf) k stmt =
     eval env conf' Skip k
     | Return result -> (match result with
       | None -> (st, i, o, None)
-      | Some r -> let res, (st', i', o', _) = Expr.eval env conf r in (st', i', o', Some res) )
+      | Some r -> let res, (st', i', o', _) = Expr.eval env conf r in (st', i', o', Some res) )  *)
       
 let elif_branch elif els =
       let last_action = match els with

@@ -189,10 +189,12 @@ let compile env code =
                  else [Binop (op, x, y)]
              )
           | LABEL s     -> env, [Label s]
-    | JMP   l     -> env, [Jmp l]
+          | JMP   l     -> env, [Jmp l]
           | CJMP (s, l) ->
               let x, env = env#pop in
               env, [Binop ("cmp", L 0, x); CJmp  (s, l)]
+          (*TODO: add BEGIN, END, RET*)
+          | _ -> failwith "Not implemented"
         in
         let env'', code'' = compile' env' scode' in
   env'', code' @ code''
