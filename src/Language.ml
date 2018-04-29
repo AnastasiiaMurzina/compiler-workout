@@ -95,14 +95,16 @@ module Expr =
           | _    -> failwith (Printf.sprintf "Unknown binary operator %s" op)
 
     let rec eval env ((st, i, o, r) as conf) expr = match expr with
-      | Const n -> n, (st, i, o, Some n)
-      | Var   x -> let y = State.eval st x in y, (st, i, o, Some y)
-      | Binop (op, x, y) -> let a, c' = eval env conf x in 
-        let b, (st', i', o', _) as c'' = eval env c' y in
-        let z = to_func op a b in z, (st', i', o', Some z)
-      | Call (x, args) -> let lambda = (fun (values, config) arg -> let value, c' = eval env config arg in (values @ [value], c')) in
-        let l, c'' = List.fold_left lambda ([], conf) args in
-        let (Some num), c = env#definition env x l c'' in num, c;;
+      | Const n -> (st, i, o, Some n)
+      | Var   x -> let y = State.eval st x in (st, i, o, Some y)
+      | Binop (op, x, y) -> let (st', i', o', Some a) as c' = eval env conf x in 
+        let (st'', i'', o'', Some b) as c'' = eval env c' y in
+        let z = to_func op a b in (st', i', o', Some z)
+      | Call (x, args) -> let lambda = (fun (values, config) var ->  
+            let (_, _, _, Some x) as c' = eval env config var in x::values, c')
+          in 
+          let values, c' = List.fold_left lambda ([], conf) args in
+          env#definition env x (List.rev values) c'
          
     (* Expression parser. You can use the following terminals:
 
@@ -160,39 +162,39 @@ module Stmt =
        Takes an environment, a configuration and a statement, and returns another configuration. The 
        environment is the same as for expressions
     *)
-    let (<||>) s = function
-| Skip -> s
-| s2 -> Seq (s, s2)
+let (<||>) s = function
+  | Skip -> s
+  | s2 -> Seq (s, s2)
 
 let rec eval env ((st, i, o, r) as conf) k stmt =
   match stmt with
-    | Skip ->  (match k with 
+  | Skip ->  (match k with 
     | Skip -> conf
     | _ -> eval env conf Skip k)
   | Read x -> (match i with z::i' -> eval env (State.update x z st, i', o, r) Skip k | _ -> failwith "Unexpected end of input")
+  | Write   e       -> let (st', i', o', Some res)  = Expr.eval env conf e in eval env (st', i', o' @ [res], r) Skip k
   | Seq    (s1, s2) -> eval env conf (s2 <||> k) s1
-
-  | _ -> failwith "notimplemented" (* | Write   e       -> let res, (st', i', o', _)  = Expr.eval env conf e in eval env (st', i', o' @ [res], r) Skip k
-  | Assign (x, e)   -> let res, (st', i', o', _)  =  Expr.eval env conf e in eval env (State.update x res st', i', o', r) Skip k
-  | If (e, s1, s2) -> let res, conf'  =  Expr.eval env conf e in 
+  | Assign (x, e)   -> let (st', i', o', Some res)  =  Expr.eval env conf e in eval env (State.update x res st', i', o', r) Skip k
+  | If (e, s1, s2) -> let (st', i', o', Some res) as conf'  =  Expr.eval env conf e in 
    (match res with
     | 0 -> eval env conf' k s2
     | _ -> eval env conf' k s1)
-   | While (e, s) ->
-   let res, conf'  =  Expr.eval env conf e in
+  | While (e, s) ->
+   let (st', i', o', Some res) as conf'  =  Expr.eval env conf e in
    (match res with
     | 0 -> eval env conf' Skip k  
-    | _ -> eval env conf' (While(e, s) <||> k) s)
-   | Repeat (s, e) ->  eval env conf  (While (Expr.Binop ("==", e, Expr.Const 0), s) <||> k) s
-   | Call (f, args) -> let process_with_conf (conf, list) e = (let v, conf = Expr.eval env conf e in conf, list @ [v]) in
+    | _ -> eval env conf' (While(e, s) <||> k) s) 
+  | Repeat (s, e) ->  eval env conf  (While (Expr.Binop ("==", e, Expr.Const 0), s) <||> k) s
+  | Call (f, args) -> let process_with_conf (conf, list) e = (let (st', i', o', Some v) as conf = Expr.eval env conf e in conf, list @ [v]) in
       let conf, updated_params = List.fold_left process_with_conf (conf, []) args in
-    let _, conf' =  env#definition env f updated_params conf in 
+    let conf' =  env#definition env f updated_params conf in 
     eval env conf' Skip k
-    | Return result -> (match result with
-      | None -> (st, i, o, None)
-      | Some r -> let res, (st', i', o', _) = Expr.eval env conf r in (st', i', o', Some res) )  *)
-      
-let elif_branch elif els =
+  | Return result -> (match result with
+    | None -> (st, i, o, None)
+    | Some r ->  Expr.eval env conf r )
+  (* | _ -> failwith "N" *)
+  
+  let elif_branch elif els =
       let last_action = match els with
         | None -> Skip
         | Some act -> act

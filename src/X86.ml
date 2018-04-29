@@ -110,10 +110,10 @@ let compile env code =
           | READ ->
              let s, env' = env#allocate in
              (env', [Call "Lread"; Mov (eax, s)])               
-             | WRITE ->
+         | WRITE ->
              let s, env' = env#pop in
              (env', [Push s; Call "Lwrite"; Pop eax])
-          | CONST n ->
+        | CONST n ->
                  let s, env' = env#allocate in
            (env', [Mov (L n, s)])    
            | BINOP op -> let x, y, env' = env#pop2 in
