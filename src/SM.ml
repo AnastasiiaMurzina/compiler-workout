@@ -43,8 +43,9 @@ let rec eval env ((cstack, stack, ((st, i, o) as c)) as conf) = function
    if checkCJump znz x then eval env (cstack, stack', c) (env#labeled l) else eval env (cstack, stack', c) prg'
   (* | _ :: prg' -> failwith "Not implemented" *)
   | CALL (f, _, _) :: prg' -> eval env ((prg', st)::cstack, stack, c) (env#labeled  f)
-  | END _::_ | RET _ :: _-> let (p, st')::cstack' = cstack in 
-                             eval env (cstack', stack, (State.leave st st', i, o)) p
+  | (END)::_ | (RET _) :: _-> (match cstack with 
+    | (p, st')::cstack' -> eval env (cstack', stack, (State.leave st st', i, o)) p
+    | _ -> eval env conf [])
   | insn :: prg' ->  let c' =
    (match insn with
       | BINOP op -> let y::x::stack' = stack in (cstack, Expr.to_func op x y :: stack', c)
@@ -117,10 +118,10 @@ let compile (defs, p) =
                 compile_lbl env s @ [JMP flbl; LABEL endlbl]
   | Stmt.Repeat (s, e)  -> let flbl = env#next_label in
                 [LABEL flbl] @ compile_lbl env s @ expr e @ [CJMP ("z", flbl)]
-  | Stmt.Return None -> [END]
-  | Stmt.Return Some x -> (expr x) @ [END] 
-  | Stmt.Call (f, p) -> List.concat (List.map expr p) @ [CALL (f, List.length p, false)]
+  | Stmt.Return None -> [RET false]
+  | Stmt.Return Some x -> (expr x) @ [RET true] 
+  | Stmt.Call (f, p) -> List.concat (List.map expr p) @ [CALL (f, List.length p, false)] 
   ) in
     let compile' env (name, (args, locals, body)) as def =
     [LABEL name; BEGIN (name, args, locals)] @ compile_lbl env body @ [END]  in
-    [JMP end_label] @ List.concat (List.map (compile' env) defs) @ [LABEL end_label] @ compile_lbl env p
+    compile_lbl env p @ [END] @ List.concat (List.map (compile' env) defs)

@@ -92,19 +92,20 @@ open SM
 *)
 let compile env code = 
   let suffix = function
-  | "<"  -> "l"
   | "<=" -> "le"
+  | "<"  -> "l"
   | "==" -> "e"
   | "!=" -> "ne"
   | ">=" -> "ge"
   | ">"  -> "g"
-  | _    -> failwith "unknown operator" 
   in
   let rec compile' env scode =
     let on_stack = function S _ -> true | _ -> false in
     match scode with
     | [] -> env, []
     | instr :: scode' ->
+      (* print_string @@ GT.transform(SM.insn) (new @SM.insn[show]) () instr;
+      print_string "\n"; *)
         let env', code' =
           match instr with
           | READ ->
@@ -183,7 +184,7 @@ let compile env code =
               let x, env = env#pop in push_args env ((Push x)::acc) (counter - 1)) in
               let env, pushs = push_args env [] n_of_args in
               let push_args = List.rev pushs in
-              let res, env = (if n_of_args = 0 then let reg, env = env#allocate in [Mov(eax, reg)], env else [], env) in
+              let res, env = (if not p then let reg, env = env#allocate in [Mov(eax, reg)], env else [], env) in
             env, pushRs @ push_args @ [Call f; Binop ("+", L (n_of_args * word_size), esp)] @ popRs @ res
           | ST x -> let s, env' = (env#global x)#pop in
                    env', (match s with
@@ -202,8 +203,18 @@ let compile env code =
 (* A set of strings *)           
 module S = Set.Make (String)
 
+let rec range' f n n' = 
+  let first = (match n' with
+  | a::n'' -> a
+  | _ -> -1) in
+   if first = n-1 
+   then List.rev_map f n'
+   else (range' f n (first+1::n'))
+
+let listinit n f = range' f n []
+
 (* Environment implementation *)
-let make_assoc l = List.combine l (List.init (List.length l) (fun x -> x))
+let make_assoc l = List.combine l (listinit (List.length l) (fun x -> x))
                      
 class env =
   object (self)
