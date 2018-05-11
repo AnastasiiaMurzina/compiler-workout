@@ -106,8 +106,6 @@ let compile env code =
     match scode with
     | [] -> env, []
     | instr :: scode' ->
-      (* print_string @@ GT.transform(SM.insn) (new @SM.insn[show]) () instr;
-      print_string "\n"; *)
         let env', code' =
           match instr with
         | CONST n ->

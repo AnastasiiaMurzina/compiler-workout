@@ -150,9 +150,9 @@ module Expr =
     let rec eval env ((st, i, o, r) as conf) expr = match expr with
       | Const n -> (st, i, o, Some (Value.of_int n))
       | String s -> (st, i, o, Some (Value.of_string s))
-      (* | Array ar ->  *)
-      (* | Elem (b, j) -> *)
-      (* | Length b -> *)
+      | Array ar -> let (st, i, o, res) = eval_list env conf ar in env#definition env "$array" res (st, i, o, None)
+      | Elem (b, j) -> let (st, i, o, res) = eval_list env conf [b; j] in env#definition env "$elem" res (st, i, o, None)
+      | Length b -> let (st, i, o, Some res) = eval env conf b in env#definition env "$length" [res] (st, i, o, None)
       | Var   x -> (st, i, o, Some (State.eval st x))
       | Binop (op, x, y) -> let (st', i', o', Some a) as c' = eval env conf x in 
         let (st'', i'', o'', Some b) as c'' = eval env c' y in
@@ -197,10 +197,15 @@ module Expr =
        )
        primary);
       
-      primary:
+      primary: b:instance is:(-"[" i:parse -"]" {`Elem i} | "." %"length" {`Len}) *
+                           {List.fold_left (fun b -> function `Elem i -> Elem (b, i) | `Len -> Length b) b is};
+
+      instance:
         n:DECIMAL {Const n}
-      | x:IDENT args: (-"(" !(Util.list0)[parse] -")") {Call (x, args)}
-      | x:IDENT { Var x } 
+      | c: CHAR {Const (Char.code c)}
+      | s: STRING {String (String.sub s 1 (String.length s - 2))}
+      | x:IDENT body: ("("args:!(Util.list0)[parse] ")" {Call (x, args)}| empty {Var x}) {body}
+      | "[" ar:!(Util.list0)[parse] "]" {Array ar}
       | -"(" parse -")"
 
     )
@@ -251,7 +256,9 @@ module Stmt =
     | Skip -> conf
     | _ -> eval env conf Skip k)
   | Seq    (s1, s2) -> eval env conf (s2 <||> k) s1
-  (*New Assign*)(* | Assign (x, e)   -> let (st', i', o', Some res)  =  Expr.eval env conf e in eval env (State.update x res st', i', o', r) Skip k *)
+  | Assign (x, instance, e)   -> let (st, i, o, ins) = Expr.eval_list env conf instance in
+         let (st, i, o, Some res) = Expr.eval env (st, i, o, None) e in
+         eval env (update st x res ins, i, o, None) Skip k
   | If (e, s1, s2) -> let (st', i', o', Some res) as conf'  =  Expr.eval env conf e in 
    (match Value.to_int res with
     | 0 -> eval env conf' k s2
@@ -275,14 +282,15 @@ module Stmt =
         | None -> Skip
         | Some act -> act
       in List.fold_right (fun (cond, action) branch -> If (cond, action, branch)) elif last_action;; 
+
     (* Statement parser *)
     ostap (
       parse:
         s:stmt ";" ss:parse {Seq (s, ss)}
       | stmt;
       stmt:
-       (* x:IDENT ":=" e:!(Expr.parse)    {Assign (x, e)} *)
-       %"skip" {Skip}
+       x:IDENT ins:(-"[" !(Expr.parse) -"]")* ":=" e:!(Expr.parse) {Assign (x, ins, e)}
+      | %"skip" {Skip}
       | %"if" e:!(Expr.parse) %"then" s1:parse 
         elifs:(%"elif" !(Expr.parse) %"then" parse)* 
         els:(%"else" parse)? %"fi"
