@@ -8,6 +8,16 @@ open Ostap
 open Combinators
 
 (* Values *)
+let rec range' f n n' = 
+  let first = (match n' with
+  | a::n'' -> a
+  | _ -> -1) in
+   if first = n-1 
+   then List.rev_map f n'
+   else (range' f n (first+1::n'))
+
+let listinit n f = range' f n []
+
 module Value =
   struct
 
@@ -30,7 +40,7 @@ module Value =
     let of_array  a = Array  a
 
     let update_string s i x = String.init (String.length s) (fun j -> if j = i then x else s.[j])
-    let update_array  a i x = List.init   (List.length a)   (fun j -> if j = i then x else List.nth a j)
+    let update_array  a i x = listinit   (List.length a)   (fun j -> if j = i then x else List.nth a j)
 
   end
        
