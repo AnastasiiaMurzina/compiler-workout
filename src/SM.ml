@@ -48,8 +48,39 @@ let split n l =
   | n -> let h::tl = rest in unzip (h::taken, tl) (n-1)
   in
   unzip ([], l) n
+
+let checkCJump cond value = let value = Value.to_int value in match cond with
+  "nz" -> value <> 0
+| "z" -> value = 0
           
-let rec eval env ((cstack, stack, ((st, i, o) as c)) as conf) _ = failwith "Not yet implemented"
+let rec eval env ((cstack, stack, ((st, i, o) as c)) as conf) = function
+  | [] -> conf
+  | JMP l :: _ -> eval env conf (env#labeled l)
+  | CJMP (znz, l) :: prg' -> let x::stack' = stack in eval env (cstack, stack', c) (
+   if checkCJump znz x then (env#labeled l) else prg')
+  | CALL (f, n, p) :: prg' ->  if env#is_label f then eval env ((prg', st)::cstack, stack, c) (env#labeled f) else eval env (env#builtin conf f n p) prg'
+  | (END)::_ | (RET _) :: _-> (match cstack with 
+    | (p, st')::cstack' -> eval env (cstack', stack, (State.leave st st', i, o)) p
+    | _ -> eval env conf [])
+  | insn :: prg' ->  let c' =
+   (match insn with
+    | BINOP  op -> let y::x::stack' = stack in (cstack, (Value.of_int @@ Expr.to_func op (Value.to_int x) (Value.to_int y)) :: stack', c)
+      | CONST i  -> (cstack, (Value.of_int i)::stack, c)
+      | STRING s -> (cstack, (Value.of_string s)::stack, c)
+      | LD x     -> (cstack, (State.eval st x) :: stack, c)
+      | ST x     -> let z::stack' = stack in (cstack, stack', (State.update x z st, i, o))
+      | STA (x, n) -> let v::is, stack' = split (n+1) stack in
+                                 (cstack, stack', (Language.Stmt.update st x v (List.rev is), i, o))
+      | LABEL _ -> conf
+      | BEGIN (_, p, l) -> let enter_st = State.enter st (p @ l) in
+                           let (st', stack') = List.fold_right (
+                               fun p (st'', x::stack') -> (State.update p x st'', stack')  
+                                ) p (enter_st, stack) in
+                            (cstack, stack', (st', i, o))
+
+      )
+       in eval env c' prg'
+
 
 (* Top-level evaluation
 
@@ -92,6 +123,13 @@ let run p i =
    Takes a program in the source language and returns an equivalent program for the
    stack machine
 *)
+(* class env =
+ object (self)
+   val mutable label = 0
+   method next_label = let last_label = label in
+     label <- label + 1; Printf.sprintf "L" ^ string_of_int last_label
+ end *)
+
 let compile (defs, p) = 
   let label s = "L" ^ s in
   let rec call f args p =
@@ -99,8 +137,35 @@ let compile (defs, p) =
     args_code @ [CALL (label f, List.length args, p)]
   and pattern lfalse _ = failwith "Not implemented"
   and bindings p = failwith "Not implemented"
-  and expr e = failwith "Not implemented" in
-  let rec compile_stmt l env stmt =  failwith "Not implemented" in
+  and expr e = (match e with
+  | Expr.Var   x          -> [LD x]
+  | Expr.Const n          -> [CONST n]
+  | Expr.Binop (op, x, y) -> expr x @ expr y @ [BINOP op]
+  | Expr.Call (f, p) -> List.concat (List.map expr p) @ [CALL (f, List.length p, false)]
+  | Expr.String s         -> [STRING s]
+  | Expr.Array arr      -> List.concat (List.map expr arr) @ [CALL ("$array", List.length arr, false)]
+  | Expr.Elem (a, i)      -> expr a @ expr i @ [CALL ("$elem", 2, false)]
+  | Expr.Length a         -> expr a @ [CALL ("$length", 1, false)]) in
+  let rec compile_stmt l env stmt =  failwith "Not implemented"(* ( match stmt with
+  | Stmt.Seq (s1, s2)      -> compile_stmt env s1 @ compile_stmt env s2
+  | Stmt.Assign (x, [], e) -> expr e @ [ST x]
+  | Stmt.Assign (x, is, e) -> List.concat (List.map expr is) @ expr e @ [STA (x, List.length is)]
+  | Stmt.Skip              -> []
+  | Stmt.If (e, s1, s2)    -> let iflbl = env#next_label in
+                let endlbl = env#next_label in
+                expr e @ [CJMP ("z", iflbl)] @ 
+                compile_stmt env s1 @ [JMP endlbl; LABEL iflbl] @ 
+                compile_stmt env s2 @ [LABEL endlbl]
+  | Stmt.While (e, s) -> let flbl = env#next_label in
+                let endlbl  = env#next_label in
+                [LABEL flbl] @ expr e @ [CJMP ("z", endlbl)] @
+                compile_stmt env s @ [JMP flbl; LABEL endlbl]
+  | Stmt.Repeat (s, e)     -> let flbl = env#next_label in
+                [LABEL flbl] @ compile_stmt env s @ expr e @ [CJMP ("z", flbl)]
+  | Stmt.Return None -> [RET false]
+  | Stmt.Return Some x -> (expr x) @ [RET true] 
+  | Stmt.Call (f, p)       -> List.concat (List.map expr p) @ [CALL (f, List.length p, true)]
+  ) *) in
   let compile_def env (name, (args, locals, stmt)) =
     let lend, env       = env#get_label in
     let env, flag, code = compile_stmt lend env stmt in

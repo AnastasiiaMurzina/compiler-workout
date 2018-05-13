@@ -204,7 +204,33 @@ module Expr =
          DECIMAL --- a decimal constant [0-9]+ as a string                                                                                                                  
     *)
     ostap (                                      
-      parse: empty {failwith "Not implemented"}
+      parse:
+    !(Ostap.Util.expr 
+             (fun x -> x)
+       (Array.map (fun (a, s) -> a, 
+                           List.map  (fun s -> ostap(- $(s)), (fun x y -> Binop (s, x, y))) s
+                        ) 
+              [|                
+    `Lefta, ["!!"];
+    `Lefta, ["&&"];
+    `Nona , ["=="; "!="; "<="; "<"; ">="; ">"];
+    `Lefta, ["+" ; "-"];
+    `Lefta, ["*" ; "/"; "%"];
+              |] 
+       )
+       primary);
+      
+      primary: b:instance is:(-"[" i:parse -"]" {`Elem i} | "." %"length" {`Len}) *
+                           {List.fold_left (fun b -> function `Elem i -> Elem (b, i) | `Len -> Length b) b is};
+
+      instance:
+        n:DECIMAL {Const n}
+      | c: CHAR {Const (Char.code c)}
+      | s: STRING {String (String.sub s 1 (String.length s - 2))}
+      | x:IDENT body: ("("args:!(Util.list0)[parse] ")" {Call (x, args)}| empty {Var x}) {body}
+      | "[" ar:!(Util.list0)[parse] "]" {Array ar}
+      | -"(" parse -")"
+
     )
     
   end
@@ -266,11 +292,59 @@ module Stmt =
       in
       State.update x (match is with [] -> v | _ -> update (State.eval st x) v is) st
 
-    let rec eval env ((st, i, o, r) as conf) k stmt = failwith "Not implemented"
-                                                        
+     let (<||>) s = function
+  | Skip -> s
+  | s2 -> Seq (s, s2)
+
+    let rec eval env ((st, i, o, r) as conf) k stmt = match stmt with
+  | Skip ->  (match k with 
+    | Skip -> conf
+    | _ -> eval env conf Skip k)
+  | Seq    (s1, s2) -> eval env conf (s2 <||> k) s1
+  | Assign (x, instance, e)   -> let (st, i, o, ins) = Expr.eval_list env conf instance in
+         let (st, i, o, Some res) = Expr.eval env (st, i, o, None) e in
+         eval env (update st x res ins, i, o, None) Skip k
+  | If (e, s1, s2) -> let (st', i', o', Some res) as conf'  =  Expr.eval env conf e in 
+   (match Value.to_int res with
+    | 0 -> eval env conf' k s2
+    | _ -> eval env conf' k s1)
+  | While (e, s) ->
+   let (st', i', o', Some res) as conf'  =  Expr.eval env conf e in
+   (match Value.to_int res with
+    | 0 -> eval env conf' Skip k  
+    | _ -> eval env conf' (While(e, s) <||> k) s) 
+  | Repeat (s, e) ->  eval env conf  (While (Expr.Binop ("==", e, Expr.Const 0), s) <||> k) s
+  | Call (f, args) -> let process_with_conf (conf, list) e = (let (st', i', o', Some v) as conf = Expr.eval env conf e in conf, list @ [v]) in
+      let conf, updated_params = List.fold_left process_with_conf (conf, []) args in
+    let conf' =  env#definition env f updated_params conf in 
+    eval env conf' Skip k
+  | Return result -> (match result with
+    | None -> (st, i, o, None)
+    | Some r ->  Expr.eval env conf r )
+         
+    let elif_branch elif els =
+      let last_action = match els with
+        | None -> Skip
+        | Some act -> act
+      in List.fold_right (fun (cond, action) branch -> If (cond, action, branch)) elif last_action;; 
+
     (* Statement parser *)
     ostap (
-      parse: empty {failwith "Not implemented"}
+      parse:
+        s:stmt ";" ss:parse {Seq (s, ss)}
+      | stmt;
+      stmt:
+       x:IDENT ins:(-"[" !(Expr.parse) -"]")* ":=" e:!(Expr.parse) {Assign (x, ins, e)}
+      | %"skip" {Skip}
+      | %"if" e:!(Expr.parse) %"then" s1:parse 
+        elifs:(%"elif" !(Expr.parse) %"then" parse)* 
+        els:(%"else" parse)? %"fi"
+        {If (e, s1, elif_branch elifs els)}
+      | %"while" e:!(Expr.parse) %"do" s1:parse %"od" {While (e, s1)} 
+      | %"repeat" s1:parse %"until" e:!(Expr.parse) {Repeat(s1,e)}
+      | %"for" e1:parse "," e:!(Expr.parse) "," s1:parse %"do" s2:parse %"od" {Seq(e1, While(e, Seq(s2,s1)))}
+      | name: IDENT "(" args:!(Util.list0)[Expr.parse] ")" { Call (name, args) }
+      | %"return" e:!(Expr.parse)? {Return e}
     )
       
   end
