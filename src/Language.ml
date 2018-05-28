@@ -7,6 +7,16 @@ open GT
 open Ostap
 open Combinators
 
+let rec range' f n n' = 
+  let first = (match n' with
+  | a::n'' -> a
+  | _ -> -1) in
+   if first = n-1 
+   then List.rev_map f n'
+   else (range' f n (first+1::n'))
+
+let listinit n f = range' f n []
+
 (* Values *)
 module Value =
   struct
@@ -35,7 +45,7 @@ module Value =
     | _ -> failwith "symbolic expression expected"
 
     let update_string s i x = String.init (String.length s) (fun j -> if j = i then x else s.[j])
-    let update_array  a i x = List.init   (List.length a)   (fun j -> if j = i then x else List.nth a j)
+    let update_array  a i x = listinit  (List.length a)   (fun j -> if j = i then x else List.nth a j)
 
   end
        
@@ -185,7 +195,22 @@ module Expr =
       | "!!" -> fun x y -> bti (itb x || itb y)
       | _    -> failwith (Printf.sprintf "Unknown binary operator %s" op)    
     
-    let rec eval env ((st, i, o, r) as conf) expr = failwith "Not implemented"
+    let rec eval env ((st, i, o, r) as conf) expr = match expr with
+      | Const n -> (st, i, o, Some (Value.of_int n))
+      | String s -> (st, i, o, Some (Value.of_string s))
+      | Array ar -> let (st, i, o, res) = eval_list env conf ar in env#definition env "$array" res (st, i, o, None)
+      | Elem (b, j) -> let (st, i, o, res) = eval_list env conf [b; j] in env#definition env "$elem" res (st, i, o, None)
+      | Length b -> let (st, i, o, Some res) = eval env conf b in env#definition env "$length" [res] (st, i, o, None)
+      | Var   x -> (st, i, o, Some (State.eval st x))
+      | Binop (op, x, y) -> let (st', i', o', Some a) as c' = eval env conf x in 
+        let (st'', i'', o'', Some b) as c'' = eval env c' y in
+          (st'', i'', o'', Some (Value.of_int @@ to_func op (Value.to_int a) (Value.to_int b)))
+      | Call (x, args) -> let lambda = (fun (values, config) var ->  
+            let (_, _, _, Some x) as c' = eval env config var in x::values, c')
+          in 
+          let values, c' = List.fold_left lambda ([], conf) args in
+          env#definition env x (List.rev values) c'
+      | Sexp (t, xs) -> let (st, i, o, valueS) = eval_list env conf xs in (st, i, o, Some (Value.Sexp (t, valueS)))
     and eval_list env conf xs =
       let vs, (st, i, o, _) =
         List.fold_left
@@ -229,6 +254,7 @@ module Expr =
       | s: STRING {String (String.sub s 1 (String.length s - 2))}
       | x:IDENT body: ("("args:!(Util.list0)[parse] ")" {Call (x, args)}| empty {Var x}) {body}
       | "[" ar:!(Util.list0)[parse] "]" {Array ar}
+      | "`" t: IDENT args:(-"("!(Util.list)[parse] -")")? {Sexp (t, (match args with None -> [] | Some args -> args))}
       | -"(" parse -")"
 
     )
@@ -252,7 +278,9 @@ module Stmt =
 
         (* Pattern parser *)                                 
         ostap (
-          parse: empty {failwith "Not implemented"}
+          parse: %"_" {Wildcard}
+          | "`" t:IDENT args:(-"(" !(Util.list)[parse] -")")? {Sexp (t, match args with None -> [] | Some args -> args)}
+          | x:IDENT {Ident  x}
         )
         
         let vars p =
@@ -296,6 +324,11 @@ module Stmt =
   | Skip -> s
   | s2 -> Seq (s, s2)
 
+  let update_elem x v = function
+    | None -> None
+    | Some e -> Some (State.bind x v e)
+  
+
     let rec eval env ((st, i, o, r) as conf) k stmt = match stmt with
   | Skip ->  (match k with 
     | Skip -> conf
@@ -321,6 +354,24 @@ module Stmt =
   | Return result -> (match result with
     | None -> (st, i, o, None)
     | Some r ->  Expr.eval env conf r )
+  | Case (e, cs) -> let (_, _, _, Some e') as conf' = Expr.eval env conf e in
+    let rec cases_or_ago ((st, i, o, _) as conf) = function
+      | (c, b)::prg' -> 
+    let rec matcher c v st = match c, v with
+      | Pattern.Wildcard, _ -> st
+      | Pattern.Sexp (s, xs), Value.Sexp (s', xs') when s = s' -> match_list st xs xs'
+      | Pattern.Ident x, v -> update_elem x v st
+      | _ -> None
+    and match_list st' a b = match a, b with
+      | [], [] -> st'
+      | x::xs, y::ys -> match_list (matcher x y st') xs ys
+      | _ -> None
+      in match matcher c e' (Some State.undefined) with
+        | None -> cases_or_ago conf prg'
+        | Some st' -> eval env (State.push st st' (Pattern.vars c), i, o, None) k (Seq (b, Leave))
+        in cases_or_ago conf' cs
+      | _ -> eval env conf Skip k
+  | Leave -> eval env (State.drop st, i, o, r) Skip k 
          
     let elif_branch elif els =
       let last_action = match els with
@@ -344,6 +395,9 @@ module Stmt =
       | %"repeat" s1:parse %"until" e:!(Expr.parse) {Repeat(s1,e)}
       | %"for" e1:parse "," e:!(Expr.parse) "," s1:parse %"do" s2:parse %"od" {Seq(e1, While(e, Seq(s2,s1)))}
       | name: IDENT "(" args:!(Util.list0)[Expr.parse] ")" { Call (name, args) }
+      | %"case" e:!(Expr.parse)
+        %"of" ptts:! (Util.listBy)[ostap ("|")][ostap (!(Pattern.parse) -"->" parse)] 
+        %"esac" {Case (e, ptts)}
       | %"return" e:!(Expr.parse)? {Return e}
     )
       

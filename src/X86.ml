@@ -1,5 +1,13 @@
 (* X86 codegeneration interface *)
+let rec range' f n n' = 
+  let first = (match n' with
+  | a::n'' -> a
+  | _ -> -1) in
+   if first = n-1 
+   then List.rev_map f n'
+   else (range' f n (first+1::n'))
 
+let listinit n f = range' f n []
 (* The registers: *)
 let regs = [|"%ebx"; "%ecx"; "%esi"; "%edi"; "%eax"; "%edx"; "%ebp"; "%esp"|]
 
@@ -264,7 +272,7 @@ module S = Set.Make (String)
 module M = Map.Make (String)
 
 (* Environment implementation *)
-let make_assoc l = List.combine l (List.init (List.length l) (fun x -> x))
+let make_assoc l = List.combine l (listinit (List.length l) (fun x -> x))
                      
 class env =
   object (self)
